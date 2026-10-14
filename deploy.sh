@@ -73,7 +73,7 @@ rollback() {
 }
 trap rollback ERR
 # Runtime files, keys, uploads and branding assets survive; generated build is replaced.
-for dir in app bootstrap config database resources routes vendor public/build; do
+for dir in app bootstrap config database resources vendor public/build; do
   rsync -a --delete "$STAGE/$dir/" "$LIVE/$dir/"
 done
 for file in artisan composer.json composer.lock package.json package-lock.json; do cp "$STAGE/$file" "$LIVE/$file"; done
