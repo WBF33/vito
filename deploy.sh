@@ -82,7 +82,7 @@ rollback() {
 }
 trap rollback ERR
 # Runtime files, keys, uploads and branding assets survive; generated build is replaced.
-for dir in app bootstrap config database resources vendor public/build; do
+for dir in app bootstrap config database resources scripts vendor public/build public/api-docs public/email public/vendor; do
   sudo -n rsync -a --delete --chown=vito:vito "$STAGE/$dir/" "$LIVE/$dir/"
 done
 for file in artisan composer.json composer.lock package.json package-lock.json; do sudo -n install -o vito -g vito -m644 "$STAGE/$file" "$LIVE/$file"; done
