@@ -74,11 +74,11 @@ rollback() {
 trap rollback ERR
 # Runtime files, keys, uploads and branding assets survive; generated build is replaced.
 for dir in app bootstrap config database resources vendor public/build; do
-  rsync -a --delete "$STAGE/$dir/" "$LIVE/$dir/"
+  sudo -n rsync -a --delete --chown=vito:vito "$STAGE/$dir/" "$LIVE/$dir/"
 done
-for file in artisan composer.json composer.lock package.json package-lock.json; do cp "$STAGE/$file" "$LIVE/$file"; done
+for file in artisan composer.json composer.lock package.json package-lock.json; do sudo -n install -o vito -g vito -m644 "$STAGE/$file" "$LIVE/$file"; done
 # Public entry point belongs to the release, other existing public assets are preserved.
-cp "$STAGE/public/index.php" "$LIVE/public/index.php"
+sudo -n install -o vito -g vito -m644 "$STAGE/public/index.php" "$LIVE/public/index.php"
 php artisan optimize:clear
 php artisan package:discover
 php artisan migrate --force
