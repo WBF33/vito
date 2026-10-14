@@ -56,9 +56,6 @@ export default function Login() {
           <div className="grid gap-2">
             <div className="flex items-center">
               <Label htmlFor="password">Password</Label>
-              <TextLink href="/forgot-password" className="ml-auto text-sm" tabIndex={5}>
-                Forgot password?
-              </TextLink>
             </div>
             <Input
               id="password"
