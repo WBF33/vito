@@ -42,7 +42,7 @@ recover_before_changes() {
 }
 trap recover_before_changes ERR
 php artisan down --retry=30 --secret="$(openssl rand -hex 24)" >/dev/null
-sudo -n supervisorctl stop 'worker:*' 
+sudo -n supervisorctl stop 'worker:*'
 # Fresh maintenance-window backup preserves all writes since the earlier snapshot.
 sudo -n tar -czf "$RESTORE/app.tar.gz" -C "$LIVE" .
 sudo -n cp /etc/nginx/sites-available/vito "$RESTORE/nginx"
