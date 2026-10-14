@@ -32,6 +32,15 @@ sudo -n test -s "$BACKUP/vito.complete.json"
 sudo -n test -s "$BACKUP/vito.sqlite"
 [[ ! -e /etc/supervisor/conf.d/websocket.conf ]]
 RESTORE="$BASE/pre-apply-$REF"; mkdir -m700 "$RESTORE"
+NGINX=$(readlink -f /etc/nginx/sites-enabled/vito)
+sudo -n python3 - "$NGINX" <<'PYPREFLIGHT'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+assert 'include /etc/nginx/snippets/block-exposed.conf;' in s
+assert 'location /ws/' not in s
+assert s.count('    location /build/ {')==1
+PYPREFLIGHT
 cd "$LIVE"
 recover_before_changes() {
   trap - ERR
@@ -45,7 +54,7 @@ php artisan down --retry=30 --secret="$(openssl rand -hex 24)" >/dev/null
 sudo -n supervisorctl stop 'worker:*'
 # Fresh maintenance-window backup preserves all writes since the earlier snapshot.
 sudo -n tar -czf "$RESTORE/app.tar.gz" -C "$LIVE" .
-sudo -n cp /etc/nginx/sites-available/vito "$RESTORE/nginx"
+sudo -n cp "$NGINX" "$RESTORE/nginx"
 python3 - "$LIVE/storage/database.sqlite" "$RESTORE/database.sqlite" <<'PY'
 import sqlite3,sys
 with sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True) as src,sqlite3.connect(sys.argv[2]) as dst:
@@ -62,7 +71,7 @@ rollback() {
   sudo -n rm -f "$LIVE/storage/database.sqlite-wal" "$LIVE/storage/database.sqlite-shm" "$LIVE/storage/database.sqlite-journal"
   sudo -n cp "$RESTORE/database.sqlite" "$LIVE/storage/database.sqlite"
   sudo -n chown vito:vito "$LIVE/storage/database.sqlite"
-  sudo -n cp "$RESTORE/nginx" /etc/nginx/sites-available/vito
+  sudo -n cp "$RESTORE/nginx" "$NGINX"
   sudo -n rm -f /etc/supervisor/conf.d/websocket.conf
   sudo -n supervisorctl reread; sudo -n supervisorctl update websocket || true
   sudo -n nginx -t && sudo -n systemctl reload nginx
@@ -85,7 +94,7 @@ php artisan migrate --force
 php artisan optimize
 sudo -n python3 - <<'PY'
 from pathlib import Path
-p=Path('/etc/nginx/sites-available/vito');s=p.read_text()
+p=Path('/etc/nginx/sites-enabled/vito').resolve();s=p.read_text()
 assert 'include /etc/nginx/snippets/block-exposed.conf;' in s
 assert 'location /ws/' not in s
 needle='    location /build/ {'
