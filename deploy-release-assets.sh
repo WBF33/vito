@@ -12,7 +12,11 @@ BASE=/home/vito/releases/vito/support-assets-$EXPECTED
 mkdir -m700 "$BASE"
 git archive "$EXPECTED" scripts public/api-docs public/email public/vendor | tar -x -C "$BASE"
 LIVE=/home/vito/vito
-sudo -n tar -czf "$BASE/previous.tar.gz" -C "$LIVE" scripts public/api-docs public/email public/vendor
+existing=()
+for dir in scripts public/api-docs public/email public/vendor; do
+ if [[ -e "$LIVE/$dir" ]]; then existing+=("$dir"); else printf '%s\n' "$dir" >> "$BASE/added-paths"; fi
+done
+sudo -n tar -czf "$BASE/previous.tar.gz" -C "$LIVE" "${existing[@]}"
 for dir in scripts public/api-docs public/email public/vendor; do
  sudo -n rsync -a --delete --chown=vito:vito "$BASE/$dir/" "$LIVE/$dir/"
 done
