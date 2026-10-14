@@ -31,10 +31,18 @@ BACKUP=/root/backups/task-206f9bf7-20261014
 sudo -n test -s "$BACKUP/vito.complete.json"
 sudo -n test -s "$BACKUP/vito.sqlite"
 [[ ! -e /etc/supervisor/conf.d/websocket.conf ]]
-cd "$LIVE"
-php artisan down --retry=30
-sudo -n supervisorctl stop 'worker:*'
 RESTORE="$BASE/pre-apply-$REF"; mkdir -m700 "$RESTORE"
+cd "$LIVE"
+recover_before_changes() {
+  trap - ERR
+  php artisan up || true
+  sudo -n supervisorctl start 'worker:*' || true
+  echo 'Preparation failed; previous application resumed without code or schema changes'
+  exit 1
+}
+trap recover_before_changes ERR
+php artisan down --retry=30
+sudo -n supervisorctl stop 'worker:*' 
 # Fresh maintenance-window backup preserves all writes since the earlier snapshot.
 sudo -n tar -czf "$RESTORE/app.tar.gz" -C "$LIVE" .
 sudo -n cp /etc/nginx/sites-available/vito "$RESTORE/nginx"
