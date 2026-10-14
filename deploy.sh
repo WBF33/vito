@@ -41,7 +41,7 @@ recover_before_changes() {
   exit 1
 }
 trap recover_before_changes ERR
-php artisan down --retry=30
+php artisan down --retry=30 --secret="$(openssl rand -hex 24)" >/dev/null
 sudo -n supervisorctl stop 'worker:*' 
 # Fresh maintenance-window backup preserves all writes since the earlier snapshot.
 sudo -n tar -czf "$RESTORE/app.tar.gz" -C "$LIVE" .
@@ -59,6 +59,7 @@ rollback() {
   sudo -n mv "$LIVE" "$BASE/failed-$REF"
   sudo -n mkdir "$LIVE"
   sudo -n tar -xzf "$RESTORE/app.tar.gz" -C "$LIVE"
+  sudo -n rm -f "$LIVE/storage/database.sqlite-wal" "$LIVE/storage/database.sqlite-shm" "$LIVE/storage/database.sqlite-journal"
   sudo -n cp "$RESTORE/database.sqlite" "$LIVE/storage/database.sqlite"
   sudo -n chown vito:vito "$LIVE/storage/database.sqlite"
   sudo -n cp "$RESTORE/nginx" /etc/nginx/sites-available/vito
@@ -116,9 +117,18 @@ sudo -n nginx -t
 sudo -n systemctl reload nginx
 sudo -n supervisorctl reread
 sudo -n supervisorctl update websocket
+# Check the real PHP/login response while public requests and jobs remain paused.
+python3 - <<'PYHEALTH'
+import base64,hashlib,hmac,json,time,subprocess
+from pathlib import Path
+d=json.loads(Path('storage/framework/down').read_text());expires=int(time.time())+60
+cookie=base64.b64encode(json.dumps({'expires_at':expires,'mac':hmac.new(d['secret'].encode(),str(expires).encode(),hashlib.sha256).hexdigest()}).encode()).decode()
+args=['curl','--fail','--silent','--show-error','--resolve','sys.wbf.tools:443:127.0.0.1','--config','-','https://sys.wbf.tools/login','-o','/dev/null']
+subprocess.run(args,input='cookie = "laravel_maintenance='+cookie+'"\n',text=True,check=True)
+PYHEALTH
+sudo -n supervisorctl status websocket | grep RUNNING
+# Once jobs or requests can write, never automatically restore an older database.
+trap - ERR
 sudo -n supervisorctl start 'worker:*'
 php artisan up
-curl --fail --silent --show-error --resolve sys.wbf.tools:443:127.0.0.1 https://sys.wbf.tools/login -o /dev/null
-sudo -n supervisorctl status websocket | grep RUNNING
-trap - ERR
 echo "Deployed Vito 4.1.1 $REF; rollback $RESTORE; snapshot $SNAPSHOT_ID"
