@@ -6,9 +6,11 @@ use App\Enums\ServiceStatus;
 use App\Facades\SSH;
 use App\Models\Database;
 use App\Models\DatabaseUser;
+use App\Models\Server;
 use App\Services\Database\Mysql;
 use App\Services\Database\Postgresql;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia;
 
 uses(RefreshDatabase::class);
@@ -28,6 +30,25 @@ test('create database', function () {
         'name' => 'database',
         'status' => DatabaseStatus::READY,
     ]);
+});
+
+test('create database with a hyphen in the name', function () {
+    $this->actingAs($this->user);
+
+    SSH::fake();
+
+    $this->post(route('databases.store', $this->server), [
+        'name' => 'my-database',
+        'charset' => 'utf8mb4',
+        'collation' => 'utf8mb4_unicode_ci',
+    ])->assertSessionDoesntHaveErrors();
+
+    $this->assertDatabaseHas('databases', [
+        'name' => 'my-database',
+        'status' => DatabaseStatus::READY,
+    ]);
+
+    SSH::assertExecutedContains('CREATE DATABASE IF NOT EXISTS \`my-database\`');
 });
 
 test('create database with user', function () {
@@ -125,6 +146,29 @@ test('delete database', function () {
     $this->assertSoftDeleted('databases', [
         'id' => $database->id,
     ]);
+});
+
+test('delete database with a hyphen in the name', function () {
+    $this->actingAs($this->user);
+
+    SSH::fake();
+
+    /** @var Database $database */
+    $database = Database::factory()->create([
+        'server_id' => $this->server,
+        'name' => 'my-database',
+    ]);
+
+    $this->delete(route('databases.destroy', [
+        'server' => $this->server,
+        'database' => $database,
+    ]))->assertSessionDoesntHaveErrors();
+
+    $this->assertSoftDeleted('databases', [
+        'id' => $database->id,
+    ]);
+
+    SSH::assertExecutedContains('DROP DATABASE IF EXISTS \`my-database\`');
 });
 
 test('delete database keeps linked user databases a list', function () {
@@ -266,3 +310,30 @@ function vitoPestFeatureDatabaseTestUsePostgresql(): void
     ]);
     test()->server->refresh();
 }
+
+test('database deletion rejects a database from another server', function () {
+    $ssh = SSH::fake();
+    Queue::fake();
+
+    $otherServer = Server::factory()->create([
+        'user_id' => $this->user->id,
+        'project_id' => $this->server->project_id,
+    ]);
+    $service = $this->server->database()->replicate();
+    $service->server_id = $otherServer->id;
+    $service->save();
+    $database = Database::factory()->create(['server_id' => $this->server->id]);
+
+    $this->actingAs($this->user)->delete(route('databases.destroy', [
+        'server' => $otherServer,
+        'database' => $database,
+    ]))->assertForbidden();
+
+    $this->assertDatabaseHas('databases', [
+        'id' => $database->id,
+        'server_id' => $this->server->id,
+        'deleted_at' => null,
+    ]);
+    expect($ssh->getExecutedCommands())->toBeEmpty();
+    Queue::assertNothingPushed();
+});

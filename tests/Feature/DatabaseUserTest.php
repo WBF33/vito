@@ -6,9 +6,11 @@ use App\Enums\ServiceStatus;
 use App\Facades\SSH;
 use App\Models\Database;
 use App\Models\DatabaseUser;
+use App\Models\Server;
 use App\Services\Database\Mysql;
 use App\Services\Database\Postgresql;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia;
 
 uses(RefreshDatabase::class);
@@ -738,6 +740,28 @@ test('mysql link does not run privilege reconcile', function () {
     SSH::assertNotExecutedContains('ALTER DEFAULT PRIVILEGES');
 });
 
+test('mysql link quotes a database name with a hyphen', function () {
+    $this->actingAs($this->user);
+
+    SSH::fake();
+
+    Database::factory()->create(['server_id' => $this->server, 'name' => 'my-database']);
+
+    $databaseUser = DatabaseUser::factory()->create([
+        'server_id' => $this->server,
+        'username' => 'app',
+        'host' => 'localhost',
+    ]);
+
+    $this->put(route('database-users.link', [
+        'server' => $this->server,
+        'databaseUser' => $databaseUser,
+    ]), ['databases' => ['my-database']])->assertSessionDoesntHaveErrors();
+
+    SSH::assertExecutedContains('REVOKE ALL PRIVILEGES ON \`my-database\`.*');
+    SSH::assertExecutedContains('GRANT ALL PRIVILEGES ON \`my-database\`.*');
+});
+
 function vitoPestFeatureDatabaseUserTestUsePostgresql(): void
 {
     test()->server->services()->where('type', Mysql::type())->delete();
@@ -749,3 +773,40 @@ function vitoPestFeatureDatabaseUserTestUsePostgresql(): void
     ]);
     test()->server->refresh();
 }
+
+test('database user routes reject a user from another server', function (string $method, string $route) {
+    $ssh = SSH::fake();
+    Queue::fake();
+
+    $otherServer = Server::factory()->create([
+        'user_id' => $this->user->id,
+        'project_id' => $this->server->project_id,
+    ]);
+    $service = $this->server->database()->replicate();
+    $service->server_id = $otherServer->id;
+    $service->save();
+    $databaseUser = DatabaseUser::factory()->create([
+        'server_id' => $this->server->id,
+        'password' => 'old_password',
+        'databases' => ['existing_database'],
+    ]);
+    $attributes = $databaseUser->refresh()->getAttributes();
+
+    $this->actingAs($this->user)->json($method, route($route, [
+        'server' => $otherServer,
+        'databaseUser' => $databaseUser,
+    ]), [
+        'password' => 'new_password',
+        'permission' => $databaseUser->permission->value,
+        'databases' => [],
+    ])->assertForbidden();
+
+    $this->assertDatabaseHas('database_users', ['id' => $databaseUser->id]);
+    expect($databaseUser->refresh()->getAttributes())->toBe($attributes);
+    expect($ssh->getExecutedCommands())->toBeEmpty();
+    Queue::assertNothingPushed();
+})->with([
+    ['PUT', 'database-users.update'],
+    ['PUT', 'database-users.link'],
+    ['DELETE', 'database-users.destroy'],
+]);

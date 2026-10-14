@@ -68,11 +68,11 @@ class Git
     /**
      * @throws SSHError
      */
-    public function checkout(Site $site): void
+    public function checkout(Site $site, ?string $path = null): void
     {
         $site->server->ssh($site->user)->exec(
             view('ssh.git.checkout', [
-                'path' => escapeshellarg((string) $site->path),
+                'path' => escapeshellarg((string) ($path ?? $site->path)),
                 'branch' => escapeshellarg((string) $site->branch),
             ]),
             'checkout-branch',
@@ -83,7 +83,7 @@ class Git
     /**
      * @throws SSHError
      */
-    public function fetchOrigin(Site $site): void
+    public function fetchOrigin(Site $site, ?string $path = null): void
     {
         $ssh = $site->server->ssh($site->user);
 
@@ -93,7 +93,7 @@ class Git
 
         $ssh->exec(
             view('ssh.git.fetch-origin', [
-                'path' => escapeshellarg((string) $site->path),
+                'path' => escapeshellarg((string) ($path ?? $site->path)),
             ]),
             'fetch-origin',
             $site->id

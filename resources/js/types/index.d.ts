@@ -1,5 +1,4 @@
 import { LucideIcon } from 'lucide-react';
-import type { Config } from 'ziggy-js';
 import type { Server } from '@/types/server';
 import { Project } from '@/types/project';
 import { User } from '@/types/user';
@@ -48,6 +47,8 @@ export interface Configs {
         label: string;
         handler: string;
         form?: DynamicFieldConfig[];
+        create_form?: DynamicFieldConfig[];
+        edit_form?: DynamicFieldConfig[];
       };
     };
   };
@@ -112,6 +113,7 @@ export interface Configs {
         handler: string;
         form?: DynamicFieldConfig[];
         versions: string[];
+        unavailable_versions: Record<string, string[]>;
         data?: {
           extensions?: string[];
         };
@@ -128,6 +130,10 @@ export interface Configs {
     installed: boolean;
   };
   tooling: ToolingDescriptor[];
+  dashboard_urls: {
+    horizon: string;
+    logs: string;
+  };
 
   [key: string]: unknown;
 }
@@ -147,7 +153,6 @@ export interface SharedData {
   demo: boolean;
   quote: { message: string; author: string };
   auth: Auth;
-  ziggy?: Config & { location: string };
   server?: Server;
   site?: Site;
   csrf_token: string;
