@@ -1,15 +1,35 @@
 import { Server } from '@/types/server';
-import { CheckIcon, CloudIcon, LoaderCircleIcon, MousePointerClickIcon, SlashIcon } from 'lucide-react';
+import { CheckIcon, CloudIcon, LoaderCircleIcon, LogsIcon, MousePointerClickIcon, SlashIcon, TerminalSquareIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import ServerActions from '@/pages/servers/components/actions';
-import { cn } from '@/lib/utils';
+import { cn, humanizeStep } from '@/lib/utils';
 import { Site } from '@/types/site';
 import { StatusRipple } from '@/components/status-ripple';
 import { Badge } from '@/components/ui/badge';
-import { useForm } from '@inertiajs/react';
-import { useState } from 'react';
+import { router, useForm } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { useRealtimeRecord } from '@/hooks/use-socket-events';
 
-export default function ServerHeader({ server, site }: { server: Server; site?: Site }) {
+import { InstantLogs } from '@/pages/server-logs/components/instant-logs';
+
+export default function ServerHeader({ server: initialServer, site: initialSite }: { server: Server; site?: Site }) {
+  const server = useRealtimeRecord<Server>(initialServer, 'server')!;
+  const site = useRealtimeRecord<Site>(initialSite, 'site');
+
+  // Reload page when installation completes
+  useEffect(() => {
+    if (initialServer.status === 'installing' && (server.status === 'ready' || server.status === 'installation_failed')) {
+      router.reload();
+    }
+  }, [server.status, initialServer.status]);
+
+  useEffect(() => {
+    if (initialSite?.status === 'installing' && site && (site.status === 'ready' || site.status === 'installation_failed')) {
+      router.reload();
+    }
+  }, [site?.status, initialSite?.status]);
+
   const statusForm = useForm();
 
   const checkStatus = () => {
@@ -81,7 +101,7 @@ export default function ServerHeader({ server, site }: { server: Server; site?: 
                 <TooltipTrigger asChild>
                   <div className="flex items-center space-x-1">
                     <LoaderCircleIcon className={cn('size-4', server.status === 'installing' ? 'text-brand animate-spin' : '')} />
-                    <div>%{parseInt(server.progress || '0')}</div>
+                    <div>{parseInt(server.progress || '0')}%</div>
                     {server.status === 'installation_failed' && (
                       <Badge className="ml-1" variant={server.status_color}>
                         {server.status}
@@ -116,7 +136,10 @@ export default function ServerHeader({ server, site }: { server: Server; site?: 
                 <TooltipTrigger asChild>
                   <div className="flex items-center space-x-1">
                     <LoaderCircleIcon className={cn('size-4', site.status === 'installing' ? 'text-brand animate-spin' : '')} />
-                    <div>%{parseInt(site.progress.toString() || '0')}</div>
+                    <div>{parseInt((site.progress ?? 0).toString())}%</div>
+                    {site.status === 'installing' && site.progress_step && (
+                      <div className="text-muted-foreground hidden text-xs lg:block">{humanizeStep(site.progress_step)}</div>
+                    )}
                     {site.status === 'installation_failed' && (
                       <Badge className="ml-1" variant={site.status_color}>
                         {site.status}
@@ -124,13 +147,43 @@ export default function ServerHeader({ server, site }: { server: Server; site?: 
                     )}
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Status</TooltipContent>
+                <TooltipContent side="bottom">
+                  {site.status === 'installing' && site.progress_step ? humanizeStep(site.progress_step) : 'Status'}
+                </TooltipContent>
               </Tooltip>
             </>
           )}
         </div>
       </div>
       <div className="flex items-center space-x-1">
+        <Tooltip>
+          <InstantLogs server={server}>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
+                <LogsIcon className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+          </InstantLogs>
+          <TooltipContent>Logs (Ctrl + Shift + L)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 p-0"
+              onClick={() => {
+                const url = route('console', { server: server.id });
+                window.open(url, `terminal-${server.id}`, 'width=900,height=600,menubar=no,toolbar=no,location=no,status=no');
+              }}
+            >
+              <TerminalSquareIcon className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Terminal</TooltipContent>
+        </Tooltip>
+
         <ServerActions server={server} />
       </div>
     </div>

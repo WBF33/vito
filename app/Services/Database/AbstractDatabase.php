@@ -3,12 +3,16 @@
 namespace App\Services\Database;
 
 use App\Actions\Database\SyncDatabases;
-use App\Enums\BackupStatus;
 use App\Exceptions\ServiceInstallationFailed;
 use App\Exceptions\SSHError;
 use App\Models\BackupFile;
+use App\Models\DatabaseUser;
+use App\Models\Server;
+use App\Models\ServerLog;
 use App\Services\AbstractService;
 use Closure;
+use Illuminate\Contracts\View\View;
+use Throwable;
 
 abstract class AbstractDatabase extends AbstractService implements Database
 {
@@ -35,6 +39,20 @@ abstract class AbstractDatabase extends AbstractService implements Database
         return 'ssh.services.database.'.$this->service->name.'.'.$script;
     }
 
+    public function usesHost(): bool
+    {
+        return true;
+    }
+
+    public function databaseUserExists(Server $server, string $username, string $host, ?DatabaseUser $ignore = null): bool
+    {
+        return $server->databaseUsers()
+            ->where('username', $username)
+            ->where('host', $host)
+            ->when($ignore, fn ($query) => $query->whereKeyNot($ignore->id))
+            ->exists();
+    }
+
     public function creationRules(array $input): array
     {
         return [
@@ -57,13 +75,22 @@ abstract class AbstractDatabase extends AbstractService implements Database
     public function install(): void
     {
         $version = str_replace('.', '', $this->service->version);
-        $command = view($this->getScriptView('install-'.$version));
-        $this->service->server->ssh()->exec($command, 'install-'.$this->service->name.'-'.$version);
+        $command = $this->installScript();
+        $this->service->server->ssh()
+            ->setLog($this->service->log)
+            ->exec($command, 'install-'.$this->service->name.'-'.$version);
         $status = $this->service->server->systemd()->status($this->unit());
         $this->service->validateInstall($status);
         $this->service->server->os()->cleanup();
         event('service.installed', $this->service);
         app(SyncDatabases::class)->sync($this->service->server);
+    }
+
+    protected function installScript(): View
+    {
+        $version = str_replace('.', '', $this->service->version);
+
+        return view($this->getScriptView('install-'.$version));
     }
 
     public function deletionRules(): array
@@ -78,12 +105,6 @@ abstract class AbstractDatabase extends AbstractService implements Database
                     $hasDatabaseUser = $this->service->server->databaseUsers()->exists();
                     if ($hasDatabaseUser) {
                         $fail('You have database user(s) on the server.');
-                    }
-                    $hasRunningBackup = $this->service->server->backups()
-                        ->where('status', BackupStatus::RUNNING)
-                        ->exists();
-                    if ($hasRunningBackup) {
-                        $fail('You have database backup(s) on the server.');
                     }
                 },
             ],
@@ -148,6 +169,22 @@ abstract class AbstractDatabase extends AbstractService implements Database
     /**
      * @throws SSHError
      */
+    public function updateUser(string $username, string $host, ?string $newPassword = null, ?string $newHost = null): void
+    {
+        $this->service->server->ssh()->exec(
+            view($this->getScriptView('update-user'), [
+                'username' => $username,
+                'host' => $host,
+                'newPassword' => $newPassword,
+                'newHost' => $newHost,
+            ]),
+            'update-user'
+        );
+    }
+
+    /**
+     * @throws SSHError
+     */
     public function deleteUser(string $username, string $host): void
     {
         $this->service->server->ssh()->exec(
@@ -162,7 +199,7 @@ abstract class AbstractDatabase extends AbstractService implements Database
     /**
      * @throws SSHError
      */
-    public function link(string $username, string $host, array $databases): void
+    public function link(string $username, string $host, array $databases, string $permission = 'admin'): void
     {
         $ssh = $this->service->server->ssh();
         $version = $this->service->version;
@@ -174,6 +211,7 @@ abstract class AbstractDatabase extends AbstractService implements Database
                     'host' => $host,
                     'database' => $database,
                     'version' => $version,
+                    'permission' => $permission,
                 ]),
                 'link-user-to-database'
             );
@@ -202,25 +240,36 @@ abstract class AbstractDatabase extends AbstractService implements Database
      */
     public function runBackup(BackupFile $backupFile): void
     {
-        // backup
+        $backupFile->database_engine = $this->service->name;
+
+        try {
+            $backupFile->database_version = BackupFile::normalizeVersion($this->version());
+        } catch (Throwable $e) {
+            ServerLog::log($this->service->server, 'backup-database-version-capture-failed', $e->getMessage());
+            $backupFile->database_version = null;
+        }
+
         $this->service->server->ssh()->exec(
             view($this->getScriptView('backup'), [
-                'file' => $backupFile->name,
+                'path' => $backupFile->tempPath(),
                 'database' => $backupFile->backup->database->name,
             ]),
             'backup-database'
         );
 
-        // upload to storage
-        $upload = $backupFile->backup->storage->provider()->ssh($this->service->server)->upload(
+        $size = trim($this->service->server->ssh()->exec(
+            'stat -c%s '.escapeshellarg($backupFile->tempPath()).' || true',
+            'backup-size'
+        ));
+
+        $backupFile->backup->storage->provider()->ssh($this->service->server)->upload(
             $backupFile->tempPath(),
             $backupFile->path(),
         );
 
-        // cleanup
-        $this->service->server->ssh()->exec('rm '.$backupFile->tempPath());
+        $this->service->server->os()->deleteFile($backupFile->tempPath());
 
-        $backupFile->size = $upload['size'];
+        $backupFile->size = is_numeric($size) ? (int) $size : null;
         $backupFile->save();
     }
 
@@ -229,16 +278,17 @@ abstract class AbstractDatabase extends AbstractService implements Database
      */
     public function restoreBackup(BackupFile $backupFile, string $database): void
     {
-        // download
+        $tempPath = $backupFile->tempPath($this->service->server);
+
         $backupFile->backup->storage->provider()->ssh($this->service->server)->download(
             $backupFile->path(),
-            $backupFile->tempPath(),
+            $tempPath,
         );
 
         $this->service->server->ssh()->exec(
             view($this->getScriptView('restore'), [
                 'database' => $database,
-                'file' => rtrim($backupFile->tempPath(), '.zip'),
+                'path' => $tempPath,
             ]),
             'restore-database'
         );
@@ -257,34 +307,27 @@ abstract class AbstractDatabase extends AbstractService implements Database
         $charsets = $this->tableToArray($data);
 
         $results = [];
-        $charsetCollations = [];
 
-        foreach ($charsets as $key => $charset) {
-            if (empty($charsetCollations[$charset[1]])) {
-                $charsetCollations[$charset[1]] = [];
-            }
+        foreach ($charsets as $charset) {
+            $collation = $charset[0];
+            $charsetName = $charset[1];
 
-            $charsetCollations[$charset[1]][] = $charset[0];
-
-            if ($charset[3] === 'Yes') {
-                $results[$charset[1]] = [
-                    'default' => $charset[0],
-                    'list' => [],
-                ];
-
+            if (empty($charsetName) || $charsetName === 'NULL') {
                 continue;
             }
 
-            if ($key == count($charsets) - 1) {
-                $results[$charset[1]] = [
+            if (! isset($results[$charsetName])) {
+                $results[$charsetName] = [
                     'default' => null,
                     'list' => [],
                 ];
             }
-        }
 
-        foreach (array_keys($results) as $charset) {
-            $results[$charset]['list'] = $charsetCollations[$charset];
+            $results[$charsetName]['list'][] = $collation;
+
+            if (($charset[3] ?? null) === 'Yes') {
+                $results[$charsetName]['default'] = $collation;
+            }
         }
 
         ksort($results);

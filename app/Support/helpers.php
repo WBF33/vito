@@ -3,6 +3,8 @@
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ProcessUtils;
 use Symfony\Component\Process\PhpExecutableFinder;
@@ -191,34 +193,46 @@ function home_path(string $user): string
     return '/home/'.$user;
 }
 
-function format_nginx_config(string $config): string
+function format_webserver_config(string $config): string
 {
     $lines = explode("\n", trim($config));
     $indent = 0;
     $formattedLines = [];
+    $lastWasEmpty = false;
 
     foreach ($lines as $line) {
         $trimmed = trim($line);
 
-        // Preserve empty lines exactly as they are
         if ($trimmed === '') {
-            $formattedLines[] = '';
+            if (! $lastWasEmpty) {
+                $formattedLines[] = '';
+                $lastWasEmpty = true;
+            }
 
             continue;
         }
 
-        // If line is a closing brace, decrease indentation first
+        $lastWasEmpty = false;
+
         if ($trimmed === '}') {
             $indent--;
+            if (end($formattedLines) === '') {
+                array_pop($formattedLines);
+            }
         }
 
-        // Apply indentation
         $formattedLines[] = str_repeat('    ', max(0, $indent)).$trimmed;
 
-        // If line contains an opening brace, increase indentation
         if (str_ends_with($trimmed, '{')) {
             $indent++;
         }
+    }
+
+    while (! empty($formattedLines) && $formattedLines[0] === '') {
+        array_shift($formattedLines);
+    }
+    while (! empty($formattedLines) && end($formattedLines) === '') {
+        array_pop($formattedLines);
     }
 
     return implode("\n", $formattedLines)."\n";
@@ -227,7 +241,7 @@ function format_nginx_config(string $config): string
 function user(): User
 {
     /** @var User $user */
-    $user = auth()->user();
+    $user = Auth::user();
 
     return $user;
 }
@@ -297,4 +311,9 @@ function move_directory(string $from, string $to): void
     }
 
     File::deleteDirectory($from);
+}
+
+function is_self_hosted(): bool
+{
+    return config('app.self_hosted', true);
 }

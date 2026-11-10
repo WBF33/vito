@@ -1,6 +1,18 @@
 #!/bin/bash
 
-export VITO_VERSION="3.x"
+echo "
+ __      ___ _        _____             _
+ \ \    / (_) |      |  __ \           | |
+  \ \  / / _| |_ ___ | |  | | ___ _ __ | | ___  _   _
+   \ \/ / | | __/ _ \| |  | |/ _ \ '_ \| |/ _ \| | | |
+    \  /  | | || (_) | |__| |  __/ |_) | | (_) | |_| |
+     \/   |_|\__\___/|_____/ \___| .__/|_|\___/ \__, |
+                                 | |             __/ |
+                                 |_|            |___/
+"
+
+export VITO_VERSION="${VITO_VERSION:-4.x}"
+export VITO_CHANNEL="${VITO_CHANNEL:-release}"
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 
@@ -42,21 +54,18 @@ mkdir /home/vito
 mkdir /home/vito/.ssh
 chown -R vito:vito /home/vito
 chsh -s /bin/bash "vito"
-su - "vito" -c "ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa" <<<y
+su - "vito" -c "ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa" <<< y
 
-# upgrade
 apt clean
+rm -f /etc/apt/sources.list.d/*ondrej*php* 2>/dev/null || true
 apt update
 apt upgrade -y
 apt autoremove -y
 
-# requirements
 apt install -y software-properties-common curl zip unzip git gcc
 
-# certbot
 apt install certbot python3-certbot-nginx -y
 
-# nginx
 export V_NGINX_CONFIG="
     user vito;
     worker_processes auto;
@@ -73,7 +82,7 @@ export V_NGINX_CONFIG="
         types_hash_max_size 2048;
         include /etc/nginx/mime.types;
         default_type application/octet-stream;
-        ssl_protocols TLSv1 TLSv1.1 TLSv1.2; # Dropping SSLv3, ref: POODLE
+        ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
         ssl_prefer_server_ciphers on;
         access_log /var/log/nginx/access.log;
         error_log /var/log/nginx/error.log;
@@ -88,37 +97,47 @@ if ! echo "${V_NGINX_CONFIG}" | tee /etc/nginx/nginx.conf; then
 fi
 service nginx start
 
-# nodejs
 export V_NODE_VERSION="20.x"
 curl -fsSL https://deb.nodesource.com/setup_${V_NODE_VERSION} | sudo -E bash -
 apt install -y nodejs
 
-# php
-export V_PHP_VERSION="8.4"
-add-apt-repository ppa:ondrej/php -y
-apt update
-apt install -y php${V_PHP_VERSION} php${V_PHP_VERSION}-fpm php${V_PHP_VERSION}-mbstring php${V_PHP_VERSION}-mcrypt php${V_PHP_VERSION}-gd php${V_PHP_VERSION}-xml php${V_PHP_VERSION}-curl php${V_PHP_VERSION}-gettext php${V_PHP_VERSION}-zip php${V_PHP_VERSION}-bcmath php${V_PHP_VERSION}-soap php${V_PHP_VERSION}-redis php${V_PHP_VERSION}-sqlite3 php${V_PHP_VERSION}-intl
+. /etc/os-release
+export V_DISTRO_CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"
+
+if curl -fsSL "https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/${V_DISTRO_CODENAME}/Release" -o /dev/null; then
+  export V_PHP_VERSION="8.4"
+  add-apt-repository ppa:ondrej/php -y
+  apt update
+else
+  echo "ondrej/php has no packages for '${V_DISTRO_CODENAME}'; using the distribution's PHP."
+  apt update
+  V_PHP_VERSION=$(apt-cache search --names-only '^php[0-9]+\.[0-9]+-fpm$' | grep -oE '^php[0-9]+\.[0-9]+-fpm' | grep -oE '[0-9]+\.[0-9]+' | sort -V | tail -n 1)
+  export V_PHP_VERSION
+fi
+
+if [[ -z "${V_PHP_VERSION}" ]]; then
+  echo "Error: could not determine a PHP version to install for '${V_DISTRO_CODENAME}'." && exit 1
+fi
+
+echo "Installing PHP ${V_PHP_VERSION}..."
+apt install -y php${V_PHP_VERSION} php${V_PHP_VERSION}-fpm php${V_PHP_VERSION}-mbstring php${V_PHP_VERSION}-gd php${V_PHP_VERSION}-xml php${V_PHP_VERSION}-curl php${V_PHP_VERSION}-zip php${V_PHP_VERSION}-bcmath php${V_PHP_VERSION}-soap php${V_PHP_VERSION}-redis php${V_PHP_VERSION}-sqlite3 php${V_PHP_VERSION}-intl
 if ! sed -i "s/www-data/vito/g" /etc/php/${V_PHP_VERSION}/fpm/pool.d/www.conf; then
   echo 'Error installing PHP' && exit 1
 fi
-service php${V_PHP_VERSION}-fpm enable
+systemctl enable php${V_PHP_VERSION}-fpm
 service php${V_PHP_VERSION}-fpm start
-apt install -y php${V_PHP_VERSION}-ssh2
 service php${V_PHP_VERSION}-fpm restart
 sed -i "s/memory_limit = .*/memory_limit = 1G/" /etc/php/${V_PHP_VERSION}/fpm/php.ini
 sed -i "s/upload_max_filesize = .*/upload_max_filesize = 1G/" /etc/php/${V_PHP_VERSION}/fpm/php.ini
 sed -i "s/post_max_size = .*/post_max_size = 1G/" /etc/php/${V_PHP_VERSION}/fpm/php.ini
 
-# composer
 curl -sS https://getcomposer.org/installer -o composer-setup.php
 php composer-setup.php --install-dir=/usr/local/bin --filename=composer
 
-# redis
 apt install redis-server -y
 service redis enable
 service redis start
 
-# setup website
 export COMPOSER_ALLOW_SUPERUSER=1
 export V_REPO="https://github.com/vitodeploy/vito.git"
 export V_VHOST_CONFIG="
@@ -155,6 +174,17 @@ server {
         fastcgi_buffer_size 32k;
     }
 
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8085;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \"upgrade\";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400;
+    }
+
     location ~ /\.(?!well-known).* {
         deny all;
     }
@@ -176,7 +206,15 @@ find /home/vito/vito -type d -exec chmod 755 {} \;
 find /home/vito/vito -type f -exec chmod 644 {} \;
 cd /home/vito/vito && git config core.fileMode false
 cd /home/vito/vito
-git checkout $(git tag -l --merged ${VITO_VERSION} --sort=-v:refname | head -n 1)
+if [[ "${VITO_CHANNEL}" == "release" ]]; then
+  VITO_TAG=$(git tag -l --merged ${VITO_VERSION} --sort=-v:refname | head -n 1)
+
+  if [[ -n "${VITO_TAG}" ]]; then
+    git checkout ${VITO_TAG}
+  else
+    echo "No release tag found for ${VITO_VERSION}, using branch instead."
+  fi
+fi
 composer install --no-dev
 cp .env.prod .env
 sed -i "s|^APP_URL=.*|APP_URL=${VITO_APP_URL}|" .env
@@ -187,17 +225,14 @@ php artisan migrate --force
 php artisan user:create Vito ${V_ADMIN_EMAIL} ${V_ADMIN_PASSWORD}
 openssl genpkey -algorithm RSA -out /home/vito/vito/storage/ssh-private.pem
 chmod 600 /home/vito/vito/storage/ssh-private.pem
-ssh-keygen -y -f /home/vito/vito/storage/ssh-private.pem >/home/vito/vito/storage/ssh-public.key
+ssh-keygen -y -f /home/vito/vito/storage/ssh-private.pem > /home/vito/vito/storage/ssh-public.key
 chown -R vito:vito /home/vito/vito/storage/ssh-private.pem
 chown -R vito:vito /home/vito/vito/storage/ssh-public.key
 
-# optimize
 php artisan optimize
 
-# cleanup
 chown -R vito:vito /home/vito
 
-# setup supervisor
 export V_WORKER_CONFIG="
 [program:worker]
 process_name=%(program_name)s_%(process_num)02d
@@ -216,16 +251,27 @@ mkdir -p /home/vito/.logs
 mkdir -p /home/vito/.logs/workers
 touch /home/vito/.logs/workers/worker.log
 echo "${V_WORKER_CONFIG}" | tee /etc/supervisor/conf.d/worker.conf
+
+export V_WEBSOCKET_CONFIG="
+[program:websocket]
+process_name=%(program_name)s
+command=php /home/vito/vito/artisan ws:serve
+autostart=1
+autorestart=1
+user=vito
+redirect_stderr=true
+stdout_logfile=/home/vito/.logs/workers/websocket.log
+"
+touch /home/vito/.logs/workers/websocket.log
+echo "${V_WEBSOCKET_CONFIG}" | tee /etc/supervisor/conf.d/websocket.conf
 supervisorctl reread
 supervisorctl update
 
-# start worker
 supervisorctl start worker:*
+supervisorctl start websocket
 
-# setup cronjobs
 echo "* * * * * cd /home/vito/vito && php artisan schedule:run >> /dev/null 2>&1" | sudo -u vito crontab -
 
-# print info
 echo "🎉 Congratulations!"
 echo "✅ You can access Vito at: ${VITO_APP_URL}"
 echo "✅ SSH User: vito"

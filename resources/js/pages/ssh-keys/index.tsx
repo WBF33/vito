@@ -3,14 +3,17 @@ import { Head, usePage } from '@inertiajs/react';
 import Container from '@/components/container';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
-import { DataTable } from '@/components/data-table';
+import { VitoTable } from '@/components/vito-table';
 import { SshKey } from '@/types/ssh-key';
-import { columns } from '@/pages/ssh-keys/components/columns';
 import AddSshKey from '@/pages/ssh-keys/components/add-ssh-key';
-import { PaginatedData } from '@/types';
+import Delete from '@/pages/ssh-keys/components/delete';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { BookOpenIcon, MoreVerticalIcon, PlusIcon } from 'lucide-react';
+import type { InertiaTableData, Row } from '@forjedio/inertia-table-react';
+import { asRow } from '@/lib/inertia-table';
 
 type Page = {
-  sshKeys: PaginatedData<SshKey>;
+  sshKeys: InertiaTableData;
 };
 
 export default function SshKeys() {
@@ -23,13 +26,39 @@ export default function SshKeys() {
         <div className="flex items-start justify-between">
           <Heading title="SSH Keys" description="Here you can manage all of your ssh keys" />
           <div className="flex items-center gap-2">
+            <a href="https://vitodeploy.com/docs/servers/ssh-keys" target="_blank">
+              <Button variant="outline">
+                <BookOpenIcon />
+                <span className="hidden lg:block">Docs</span>
+              </Button>
+            </a>
             <AddSshKey>
-              <Button>Add</Button>
+              <Button>
+                <PlusIcon />
+                Add
+              </Button>
             </AddSshKey>
           </div>
         </div>
 
-        <DataTable columns={columns} paginatedData={page.props.sshKeys} />
+        <VitoTable
+          tableData={page.props.sshKeys}
+          actions={(row: Row) => (
+            <div className="flex items-center justify-end">
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 p-0">
+                    <span className="sr-only">Open menu</span>
+                    <MoreVerticalIcon />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <Delete sshKey={asRow<SshKey>(row, ['id', 'name'])} />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+        />
       </Container>
     </SettingsLayout>
   );

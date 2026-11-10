@@ -1,7 +1,17 @@
-import { ClipboardCheckIcon, ClipboardIcon, LoaderCircle, PlusIcon, TrashIcon, TriangleAlert, WifiIcon } from 'lucide-react';
+import {
+  CheckIcon,
+  ChevronsUpDownIcon,
+  ClipboardCheckIcon,
+  ClipboardIcon,
+  LoaderCircle,
+  PlusIcon,
+  TrashIcon,
+  TriangleAlert,
+  WifiIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { useForm, usePage } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
 import React, { FormEventHandler, useEffect, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -12,8 +22,8 @@ import { ServerProvider } from '@/types/server-provider';
 import ConnectServerProvider from '@/pages/server-providers/components/connect-server-provider';
 import axios from 'axios';
 import { Form, FormField, FormFields } from '@/components/ui/form';
-import type { SharedData } from '@/types';
 import { DataTable } from '@/components/data-table';
+import { useConfigs, usePublicKeyText } from '@/stores/bootstrap-store';
 import { ColumnDef } from '@tanstack/react-table';
 import { EventBus } from '@/lib/event-bus';
 import {
@@ -29,6 +39,18 @@ import {
 import ServerTemplates from './templates';
 import { ServerTemplate, Service } from '@/types/server-template';
 import { Textarea } from '@/components/ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { useSocketListener } from '@/hooks/use-socket-events';
+
+type PlanOption = {
+  label: string;
+  available: boolean;
+};
+
+const normalizePlan = (plan: string | PlanOption): PlanOption => (typeof plan === 'string' ? { label: plan, available: true } : plan);
 
 type CreateServerForm = {
   provider: string;
@@ -44,7 +66,7 @@ type CreateServerForm = {
 
 function AddService() {
   const [open, setOpen] = useState(false);
-  const page = usePage<SharedData>();
+  const configs = useConfigs()!;
   const form = useForm<Service>({
     type: '',
     name: '',
@@ -90,7 +112,7 @@ function AddService() {
                 value={form.data.name}
                 onValueChange={(value) => {
                   form.setData('name', value);
-                  form.setData('type', page.props.configs.service.services[value].type);
+                  form.setData('type', configs.service.services[value].type);
                   form.setData('version', '');
                 }}
               >
@@ -99,7 +121,7 @@ function AddService() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {Object.entries(page.props.configs.service.services).map(([key, service]) => (
+                    {Object.entries(configs.service.services).map(([key, service]) => (
                       <SelectItem key={`service-${key}`} value={key}>
                         {service.label}
                       </SelectItem>
@@ -120,7 +142,7 @@ function AddService() {
                 <SelectContent>
                   <SelectGroup>
                     {form.data.name &&
-                      page.props.configs.service.services[form.data.name].versions.map((version) => (
+                      configs.service.services[form.data.name].versions.map((version) => (
                         <SelectItem key={`version-${form.data.name}-${version}`} value={version}>
                           {version}
                         </SelectItem>
@@ -184,7 +206,8 @@ export default function CreateServer({
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }) {
-  const page = usePage<SharedData>();
+  const configs = useConfigs()!;
+  const publicKeyText = usePublicKeyText();
 
   const [open, setOpen] = useState(defaultOpen || false);
   useEffect(() => {
@@ -273,12 +296,17 @@ export default function CreateServer({
 
   const [copySuccess, setCopySuccess] = useState(false);
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(page.props.public_key_text).then(() => {
-      setCopySuccess(true);
-      setTimeout(() => {
-        setCopySuccess(false);
-      }, 2000);
-    });
+    navigator.clipboard.writeText(publicKeyText).then(
+      () => {
+        setCopySuccess(true);
+        setTimeout(() => {
+          setCopySuccess(false);
+        }, 2000);
+      },
+      () => {
+        toast.error('Failed to copy to clipboard');
+      },
+    );
   };
 
   const [serverProviders, setServerProviders] = useState<ServerProvider[]>([]);
@@ -286,21 +314,46 @@ export default function CreateServer({
     const serverProviders = await axios.get(route('server-providers.json'));
     setServerProviders(serverProviders.data);
   };
-  const selectProvider = (provider: string) => {
-    form.setData('provider', provider);
-    form.clearErrors();
-    if (provider !== 'custom') {
-      form.setData('server_provider', 0);
-      form.setData('region', '');
-      form.setData('plan', '');
+
+  useEffect(() => {
+    if (open) {
       fetchServerProviders();
     }
+  }, [open]);
+
+  useSocketListener((event) => {
+    if (event.type?.startsWith('server-provider.')) {
+      fetchServerProviders();
+    }
+  });
+
+  const providerValue = form.data.provider === 'custom' ? 'custom' : form.data.server_provider ? form.data.server_provider.toString() : '';
+
+  const selectCombinedProvider = async (value: string) => {
+    form.clearErrors();
+    form.setData('region', '');
+    form.setData('plan', '');
+    setRegions({});
+    setPlans({});
+
+    if (value === 'custom') {
+      form.setData('provider', 'custom');
+      form.setData('server_provider', 0);
+      return;
+    }
+
+    const connection = serverProviders.find((item) => item.id.toString() === value);
+    if (!connection) {
+      return;
+    }
+
+    form.setData('provider', connection.provider);
+    form.setData('server_provider', connection.id);
+    await fetchRegions(connection.id);
   };
 
-  const selectServerProvider = async (serverProvider: string) => {
-    form.setData('server_provider', parseInt(serverProvider));
-    await fetchRegions(parseInt(serverProvider));
-  };
+  const [regionOpen, setRegionOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
 
   const [regions, setRegions] = useState<{ [key: string]: string }>({});
   const fetchRegions = async (serverProvider: number) => {
@@ -314,7 +367,7 @@ export default function CreateServer({
     }
   };
 
-  const [plans, setPlans] = useState<{ [key: string]: string }>({});
+  const [plans, setPlans] = useState<{ [key: string]: string | PlanOption }>({});
   const fetchPlans = async (serverProvider: number, region: string) => {
     const plans = await axios.get(route('server-providers.plans', { serverProvider: serverProvider, region: region }));
     setPlans(plans.data);
@@ -342,90 +395,136 @@ export default function CreateServer({
           <FormFields>
             <FormField>
               <Label htmlFor="provider">Provider</Label>
-              <Select value={form.data.provider} onValueChange={(value) => selectProvider(value)}>
-                <SelectTrigger id="provider">
-                  <SelectValue placeholder="Select a provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {Object.entries(page.props.configs.server_provider.providers).map(([key, provider]) => (
-                      <SelectItem key={key} value={key}>
-                        {provider.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <InputError message={form.errors.provider} />
-            </FormField>
+              <div className="flex items-center gap-2">
+                <Select value={providerValue} onValueChange={selectCombinedProvider}>
+                  <SelectTrigger id="provider" className="flex-1">
+                    <SelectValue placeholder="Select a provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="custom">{configs.server_provider.providers.custom?.label ?? 'Custom'}</SelectItem>
+                      {Object.entries(configs.server_provider.providers)
+                        .filter(([key]) => key !== 'custom')
+                        .map(([key, provider]) => {
+                          const connections = serverProviders.filter((item: ServerProvider) => item.provider === key);
 
-            {form.data.provider && form.data.provider !== 'custom' && (
-              <FormField>
-                <Label htmlFor="server-provider">Server provider connection</Label>
-                <div className="flex items-center gap-2">
-                  <Select value={form.data.server_provider.toString()} onValueChange={selectServerProvider}>
-                    <SelectTrigger id="provider">
-                      <SelectValue placeholder="Select a provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {serverProviders
-                          .filter((item: ServerProvider) => item.provider === form.data.provider)
-                          .map((provider) => (
-                            <SelectItem key={`server-provider-${provider.id}`} value={provider.id.toString()}>
-                              {provider.name}
+                          if (connections.length === 0) {
+                            return (
+                              <SelectItem key={`provider-${key}`} value={`unavailable-${key}`} disabled>
+                                {provider.label}
+                              </SelectItem>
+                            );
+                          }
+
+                          return connections.map((connection) => (
+                            <SelectItem key={`connection-${connection.id}`} value={connection.id.toString()}>
+                              {provider.label} - {connection.name}
                             </SelectItem>
-                          ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <ConnectServerProvider defaultProvider={form.data.provider} onProviderAdded={fetchServerProviders}>
-                    <Button variant="outline">
-                      <WifiIcon />
-                    </Button>
-                  </ConnectServerProvider>
-                </div>
-                <InputError message={form.errors.server_provider} />
-              </FormField>
-            )}
+                          ));
+                        })}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <ConnectServerProvider
+                  defaultProvider={form.data.provider !== 'custom' ? form.data.provider : undefined}
+                  onProviderAdded={fetchServerProviders}
+                >
+                  <Button type="button" variant="outline" size="icon" aria-label="Add server provider">
+                    <WifiIcon />
+                  </Button>
+                </ConnectServerProvider>
+              </div>
+              <InputError message={form.errors.provider || form.errors.server_provider} />
+            </FormField>
 
             {form.data.provider && form.data.provider !== 'custom' && (
               <div className="grid grid-cols-2 gap-6">
                 <FormField>
                   <Label htmlFor="region">Region</Label>
-                  <Select value={form.data.region} onValueChange={selectRegion} disabled={form.data.server_provider === 0}>
-                    <SelectTrigger id="region">
-                      <SelectValue placeholder="Select a region" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {Object.entries(regions).map(([key, value]) => (
-                          <SelectItem key={`region-${key}`} value={key}>
-                            {value}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Popover open={regionOpen} onOpenChange={setRegionOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="region"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={regionOpen}
+                        className="w-full justify-between font-normal"
+                        disabled={form.data.server_provider === 0}
+                      >
+                        {form.data.region ? regions[form.data.region] || form.data.region : 'Select a region'}
+                        <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search region..." />
+                        <CommandList>
+                          <CommandGroup>
+                            {Object.entries(regions).map(([key, value]) => (
+                              <CommandItem
+                                key={`region-${key}`}
+                                value={value}
+                                onSelect={() => {
+                                  selectRegion(key);
+                                  setRegionOpen(false);
+                                }}
+                              >
+                                {value}
+                                <CheckIcon className={cn('ml-auto', form.data.region === key ? 'opacity-100' : 'opacity-0')} />
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                   <InputError message={form.errors.region} />
                 </FormField>
 
                 <FormField>
                   <Label htmlFor="plan">Plan</Label>
-                  <Select value={form.data.plan} onValueChange={selectPlan} disabled={form.data.region === ''}>
-                    <SelectTrigger id="plan">
-                      <SelectValue placeholder="Select a plan" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {Object.entries(plans).map(([key, value]) => (
-                          <SelectItem key={`plan-${key}`} value={key}>
-                            {value}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Popover open={planOpen} onOpenChange={setPlanOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="plan"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={planOpen}
+                        className="w-full justify-between font-normal"
+                        disabled={form.data.region === ''}
+                      >
+                        {form.data.plan ? (plans[form.data.plan] ? normalizePlan(plans[form.data.plan]).label : form.data.plan) : 'Select a plan'}
+                        <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search plan..." />
+                        <CommandList>
+                          <CommandGroup>
+                            {Object.entries(plans).map(([key, value]) => {
+                              const plan = normalizePlan(value);
+                              return (
+                                <CommandItem
+                                  key={`plan-${key}`}
+                                  value={plan.label}
+                                  disabled={!plan.available}
+                                  onSelect={() => {
+                                    selectPlan(key);
+                                    setPlanOpen(false);
+                                  }}
+                                >
+                                  {plan.label}
+                                  {!plan.available && <span className="text-muted-foreground ml-2">(unavailable)</span>}
+                                  <CheckIcon className={cn('ml-auto', form.data.plan === key ? 'opacity-100' : 'opacity-0')} />
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                   <InputError message={form.errors.plan} />
                 </FormField>
               </div>
@@ -448,7 +547,8 @@ export default function CreateServer({
                   <Textarea
                     onClick={copyToClipboard}
                     id="public_key"
-                    value={page.props.public_key_text}
+                    value={publicKeyText}
+                    readOnly
                     className="justify-between overflow-auto font-normal"
                     spellCheck={false}
                   ></Textarea>
@@ -470,7 +570,7 @@ export default function CreateServer({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {page.props.configs.operating_systems.map((value) => (
+                      {configs.operating_systems.map((value) => (
                         <SelectItem key={`os-${value}`} value={value}>
                           {value}
                         </SelectItem>

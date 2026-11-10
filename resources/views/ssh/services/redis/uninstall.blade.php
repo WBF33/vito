@@ -1,4 +1,4 @@
-sudo service redis stop
+sudo systemctl stop redis-server
 
 sudo DEBIAN_FRONTEND=noninteractive apt-get remove redis-server -y
 

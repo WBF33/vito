@@ -2,14 +2,40 @@
 
 namespace App\SSH\OS;
 
+use App\Exceptions\SSHCommandError;
 use App\Exceptions\SSHError;
 use App\Models\Server;
 use App\Models\ServerLog;
 use App\Models\Site;
+use RuntimeException;
 
 class OS
 {
+    public const FILE_NOT_FOUND = 'VITO_NO_FILE';
+
+    private const SHELL_IDENTIFIER = '/^[A-Za-z_][A-Za-z0-9_]*$/';
+
     public function __construct(protected Server $server) {}
+
+    private function assertShellIdentifier(string $name): void
+    {
+        if (preg_match(self::SHELL_IDENTIFIER, $name) !== 1) {
+            throw new RuntimeException('Refusing to emit shell statement with unsafe identifier.');
+        }
+    }
+
+    /**
+     * @throws SSHError
+     */
+    public function waitForBoot(int $timeout = 300): void
+    {
+        $this->server->ssh()->exec(
+            view('ssh.os.wait-for-boot', [
+                'timeout' => $timeout,
+            ]),
+            'wait-for-boot'
+        );
+    }
 
     /**
      * @throws SSHError
@@ -26,42 +52,63 @@ class OS
     }
 
     /**
+     * @return array{upgraded: int, reboot_required: bool}
+     *
      * @throws SSHError
      */
-    public function upgrade(): void
+    public function upgrade(): array
     {
-        $this->server->ssh()->exec(
+        $result = $this->server->ssh()->exec(
             view('ssh.os.upgrade'),
             'upgrade'
         );
+
+        return [
+            'upgraded' => max(str($result)->after('Packages upgraded:')->trim()->toInteger(), 0),
+            'reboot_required' => str($result)->after('Reboot required:')->trim()->toInteger() === 1,
+        ];
     }
 
     /**
      * @throws SSHError
      */
-    public function availableUpdates(): int
+    public function upgradeKernel(): void
+    {
+        $this->server->ssh()->exec(
+            view('ssh.os.upgrade-kernel'),
+            'upgrade-kernel'
+        );
+    }
+
+    /**
+     * @return array{updates: int, kernel: int}
+     *
+     * @throws SSHError
+     */
+    public function availableUpdates(): array
     {
         $result = $this->server->ssh()->exec(
             view('ssh.os.available-updates'),
             'check-available-updates'
         );
 
-        // -1 because the first line is not a package
-        $availableUpdates = str($result)->after('Available updates:')->trim()->toInteger() - 1;
-
-        return max($availableUpdates, 0);
+        return [
+            'updates' => max(str($result)->after('Available updates:')->trim()->toInteger(), 0),
+            'kernel' => max(str($result)->after('Kernel updates:')->trim()->toInteger(), 0),
+        ];
     }
 
     /**
      * @throws SSHError
      */
-    public function createUser(string $user, string $password, string $key): void
+    public function createUser(string $user, string $password, string $key, bool $clearKeys = false): void
     {
         $this->server->ssh()->exec(
             view('ssh.os.create-user', [
                 'user' => $user,
                 'password' => $password,
                 'key' => $key,
+                'clearKeys' => $clearKeys,
             ]),
             'create-user'
         );
@@ -77,6 +124,7 @@ class OS
                 'user' => $user,
                 'serverUser' => $this->server->getSshUser(),
                 'password' => $password,
+                'key' => escapeshellarg(trim($this->server->sshKey()['public_key'])),
             ]),
             'create-isolated-user',
             $site_id
@@ -102,19 +150,26 @@ class OS
      */
     public function getPublicKey(string $user): string
     {
-        return $this->server->ssh()->exec(
+        $key = $this->server->ssh()->exec(
             view('ssh.os.read-file', [
                 'path' => '/home/'.$user.'/.ssh/id_rsa.pub',
-            ])
+            ]),
+            'get-public-key'
         );
+
+        if (trim($key) === '') {
+            throw new SSHCommandError(message: 'Failed to read the public key for '.$user);
+        }
+
+        return $key;
     }
 
     /**
      * @throws SSHError
      */
-    public function deploySSHKey(string $key): void
+    public function deploySSHKey(string $key, string $user): void
     {
-        $this->server->ssh()->exec(
+        $this->server->ssh($user)->exec(
             view('ssh.os.deploy-ssh-key', [
                 'key' => $key,
             ]),
@@ -125,12 +180,11 @@ class OS
     /**
      * @throws SSHError
      */
-    public function deleteSSHKey(string $key): void
+    public function deleteSSHKey(string $key, string $user): void
     {
-        $this->server->ssh()->exec(
+        $this->server->ssh($user)->exec(
             view('ssh.os.delete-ssh-key', [
                 'key' => $key,
-                'user' => $this->server->getSshUser(),
             ]),
             'delete-ssh-key'
         );
@@ -159,6 +213,7 @@ class OS
             view('ssh.os.read-ssh-key', [
                 'name' => $name,
             ]),
+            'read-ssh-key'
         );
     }
 
@@ -169,6 +224,7 @@ class OS
     {
         $this->server->ssh()->exec(
             view('ssh.os.reboot'),
+            'reboot'
         );
     }
 
@@ -234,23 +290,25 @@ class OS
         if ($serverLog instanceof ServerLog) {
             $ssh->setLog($serverLog);
         }
-        $command = "shopt -s expand_aliases\n";
+        $command = "set -e\n";
+        $command .= "set -o pipefail\n";
+        $command .= "shopt -s expand_aliases\n";
         if ($aliases !== null && $aliases !== []) {
             foreach ($aliases as $key => $alias) {
-                $command .= "alias $key=$alias\n";
+                $this->assertShellIdentifier((string) $key);
+                $command .= sprintf("alias %s=%s\n", $key, escapeshellarg((string) $alias));
             }
         }
         if ($variables !== null && $variables !== []) {
             foreach ($variables as $key => $variable) {
-                $command .= "export $key=$variable\n";
+                $this->assertShellIdentifier((string) $key);
+                $command .= sprintf("export %s=%s\n", $key, escapeshellarg((string) $variable));
             }
         }
         $command .= view('ssh.os.run-script', [
             'path' => $path,
             'script' => $script,
         ]);
-
-        info($command);
 
         $ssh->exec($command, 'run-script');
 
@@ -269,7 +327,8 @@ class OS
             view('ssh.os.download', [
                 'url' => $url,
                 'path' => $path,
-            ])
+            ]),
+            'download'
         );
     }
 
@@ -299,24 +358,48 @@ class OS
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, string|bool|null>
      *
      * @throws SSHError
      */
     public function resourceInfo(): array
     {
         $info = $this->server->ssh()->exec(
-            view('ssh.os.resource-info'),
+            command: view('ssh.os.resource-info'),
+            timeout: 5,
         );
 
+        $values = [];
+        foreach (preg_split('/\R/', $info) ?: [] as $line) {
+            if (preg_match('/^([a-z_]+):(.*)$/', trim($line), $matches) === 1) {
+                $values[$matches[1]] = trim($matches[2]);
+            }
+        }
+
+        $nullIfEmpty = fn (string $key): ?string => ($values[$key] ?? '') === '' ? null : $values[$key];
+
+        [$cpuUsage, $cpuSteal] = array_pad(explode('|', $values['cpu_usage_and_steal'] ?? ''), 2, '');
+
         return [
-            'load' => str($info)->after('load:')->before(PHP_EOL)->toString(),
-            'memory_total' => str($info)->after('memory_total:')->before(PHP_EOL)->toString(),
-            'memory_used' => str($info)->after('memory_used:')->before(PHP_EOL)->toString(),
-            'memory_free' => str($info)->after('memory_free:')->before(PHP_EOL)->toString(),
-            'disk_total' => str($info)->after('disk_total:')->before(PHP_EOL)->toString(),
-            'disk_used' => str($info)->after('disk_used:')->before(PHP_EOL)->toString(),
-            'disk_free' => str($info)->after('disk_free:')->before(PHP_EOL)->toString(),
+            'load' => $values['load'] ?? '',
+            'memory_total' => $values['memory_total'] ?? '',
+            'memory_used' => $values['memory_used'] ?? '',
+            'memory_free' => $values['memory_free'] ?? '',
+            'disk_total' => $values['disk_total'] ?? '',
+            'disk_used' => $values['disk_used'] ?? '',
+            'disk_free' => $values['disk_free'] ?? '',
+            'cpu_cores' => $nullIfEmpty('cpu_cores'),
+            'cpu_physical_cores' => $nullIfEmpty('cpu_physical_cores'),
+            'cpu_usage_percent' => $cpuUsage === '' ? null : $cpuUsage,
+            'cpu_per_core_usage_percent' => null,
+            'cpu_steal_percent' => $cpuSteal === '' ? null : $cpuSteal,
+            'swap_total' => $nullIfEmpty('swap_total'),
+            'swap_used' => $nullIfEmpty('swap_used'),
+            'swap_free' => $nullIfEmpty('swap_free'),
+            'swap_used_percent' => $nullIfEmpty('swap_used_percent'),
+            'oom_kill_count' => $nullIfEmpty('oom_kill_count'),
+            'uptime_seconds' => $nullIfEmpty('uptime_seconds'),
+            'reboot_required' => ($values['reboot_required'] ?? '0') === '1',
         ];
     }
 
@@ -349,7 +432,8 @@ class OS
         $this->server->ssh()->write(
             $path,
             $content,
-            $user
+            $user,
+            'write-file'
         );
     }
 
@@ -359,5 +443,50 @@ class OS
     public function mkdir(string $path, ?string $user = null): string
     {
         return $this->server->ssh($user)->exec('mkdir -p '.$path);
+    }
+
+    /**
+     * @throws SSHError
+     */
+    public function compress(string $sourcePath, string $zipPath): void
+    {
+        $this->server->ssh()->exec(
+            view('ssh.os.compress', [
+                'sourcePath' => $sourcePath,
+                'zipPath' => $zipPath,
+            ]),
+            'compress'
+        );
+    }
+
+    /**
+     * @throws SSHError
+     */
+    public function extractArchive(string $backupPath, string $restorePath, ?string $owner = null, ?string $permissions = null): void
+    {
+        $this->server->ssh()->exec(
+            view('ssh.os.extract-archive', [
+                'backupPath' => $backupPath,
+                'restorePath' => $restorePath,
+                'owner' => $owner,
+                'permissions' => $permissions,
+            ]),
+            'extract-archive'
+        );
+    }
+
+    /**
+     * Clear a remote log file while preserving permissions and ownership
+     *
+     * @throws SSHError
+     */
+    public function clearFile(string $path): void
+    {
+        $this->server->ssh()->exec(
+            view('ssh.os.clear-file', [
+                'path' => $path,
+            ]),
+            'clear-file'
+        );
     }
 }

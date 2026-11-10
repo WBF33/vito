@@ -2,13 +2,28 @@
 
 namespace App\Enums;
 
-final class SiteStatus
+use App\Contracts\VitoEnum;
+use Forjed\InertiaTable\Contracts\HasTableDisplay;
+
+enum SiteStatus: string implements HasTableDisplay, VitoEnum
 {
-    const string READY = 'ready';
+    case READY = 'ready';
+    case INSTALLING = 'installing';
+    case INSTALLATION_FAILED = 'installation_failed';
+    case DELETING = 'deleting';
 
-    const string INSTALLING = 'installing';
+    public function getColor(): string
+    {
+        return match ($this) {
+            self::READY => 'success',
+            self::INSTALLING => 'warning',
+            self::INSTALLATION_FAILED,
+            self::DELETING => 'danger',
+        };
+    }
 
-    const string INSTALLATION_FAILED = 'installation_failed';
-
-    const string DELETING = 'deleting';
+    public function getText(): string
+    {
+        return $this->value;
+    }
 }

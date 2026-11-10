@@ -1,4 +1,5 @@
 import { NavUser } from '@/components/nav-user';
+import { currentPath } from '@/lib/utils';
 import {
   Sidebar,
   SidebarContent,
@@ -14,60 +15,103 @@ import {
 } from '@/components/ui/sidebar';
 import { type NavItem, SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { BookOpen, ChevronRightIcon, CogIcon, Folder, ListEndIcon, LogsIcon, MousePointerClickIcon, ServerIcon, ZapIcon } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronRightIcon,
+  CloudUploadIcon,
+  CogIcon,
+  Folder,
+  Globe,
+  ListEndIcon,
+  LogsIcon,
+  MousePointerClickIcon,
+  NetworkIcon,
+  ServerIcon,
+  Settings2Icon,
+  WorkflowIcon,
+  ZapIcon,
+} from 'lucide-react';
 import AppLogo from './app-logo';
 import { Icon } from '@/components/icon';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-const mainNavItems: NavItem[] = [
-  {
-    title: 'Servers',
-    href: route('servers'),
-    icon: ServerIcon,
-  },
-  {
-    title: 'Sites',
-    href: route('sites.all'),
-    icon: MousePointerClickIcon,
-  },
-  {
-    title: 'Scripts',
-    href: route('scripts'),
-    icon: ZapIcon,
-  },
-  {
-    title: 'Settings',
-    href: route('settings'),
-    icon: CogIcon,
-  },
-];
-
-const footerNavItems: NavItem[] = [
-  {
-    title: 'Horizon Dashboard',
-    href: route('horizon.index'),
-    icon: ListEndIcon,
-  },
-  {
-    title: 'Vito Logs',
-    href: route('log-viewer.index'),
-    icon: LogsIcon,
-  },
-  {
-    title: 'Repository',
-    href: 'https://github.com/vitodeploy/vito',
-    icon: Folder,
-  },
-  {
-    title: 'Documentation',
-    href: 'https://vitodeploy.com',
-    icon: BookOpen,
-  },
-];
-
 export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?: NavItem[]; secondNavTitle?: string }) {
   const page = usePage<SharedData>();
+
+  const mainNavItems: NavItem[] = [
+    {
+      title: 'Networks',
+      href: route('networks'),
+      icon: NetworkIcon,
+    },
+    {
+      title: 'Servers',
+      href: route('servers'),
+      icon: ServerIcon,
+    },
+    {
+      title: 'Sites',
+      href: route('sites.all'),
+      icon: MousePointerClickIcon,
+    },
+    {
+      title: 'Backups',
+      href: route('backups.all'),
+      icon: CloudUploadIcon,
+    },
+    {
+      title: 'Scripts',
+      href: route('scripts'),
+      icon: ZapIcon,
+    },
+    {
+      title: 'Workflows',
+      href: route('workflows'),
+      icon: WorkflowIcon,
+    },
+    {
+      title: 'Domains',
+      href: route('domains'),
+      icon: Globe,
+    },
+    {
+      title: 'Settings',
+      href: route('settings'),
+      icon: CogIcon,
+    },
+    {
+      title: 'Admin',
+      href: route('admin'),
+      icon: Settings2Icon,
+      hidden: !page.props.auth.user?.is_admin,
+    },
+  ];
+
+  const footerNavItems: NavItem[] = [
+    {
+      title: 'Horizon Dashboard',
+      href: route('horizon.index'),
+      icon: ListEndIcon,
+      hidden: !page.props.auth.user?.is_admin,
+    },
+    {
+      title: 'Vito Logs',
+      href: route('log-viewer.index'),
+      icon: LogsIcon,
+      hidden: !page.props.auth.user?.is_admin,
+    },
+    {
+      title: 'Repository',
+      href: 'https://github.com/vitodeploy/vito',
+      icon: Folder,
+    },
+    {
+      title: 'Documentation',
+      href: 'https://vitodeploy.com',
+      icon: BookOpen,
+    },
+  ];
 
   return (
     <Sidebar collapsible="icon" className="overflow-hidden [&>[data-sidebar=sidebar]]:flex-row">
@@ -99,8 +143,9 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
                   <SidebarMenuItem key={`${item.title}-${item.href}`}>
                     <SidebarMenuButton
                       asChild
-                      isActive={item.onlyActivePath ? window.location.href === item.href : window.location.href.startsWith(item.href)}
+                      isActive={item.onlyActivePath ? currentPath() === item.href : window.location.href.startsWith(item.href)}
                       tooltip={{ children: item.title, hidden: false }}
+                      hidden={item.hidden}
                     >
                       {item.external ? (
                         <a href={item.href} target="_blank">
@@ -108,7 +153,7 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
                           <span>{item.title}</span>
                         </a>
                       ) : (
-                        <Link href={item.href} prefetch>
+                        <Link href={item.href}>
                           {item.icon && <item.icon />}
                           <span>{item.title}</span>
                         </Link>
@@ -123,7 +168,7 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
         <SidebarFooter className="hidden md:flex">
           <SidebarMenu>
             {footerNavItems.map((item) => (
-              <SidebarMenuItem key={`${item.title}-${item.href}`}>
+              <SidebarMenuItem key={`${item.title}-${item.href}`} hidden={item.hidden}>
                 <SidebarMenuButton asChild tooltip={{ children: item.title, hidden: false }}>
                   <a href={item.href} target="_blank" rel="noopener noreferrer">
                     {item.icon && <Icon iconNode={item.icon} />}
@@ -152,11 +197,21 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
               <SidebarGroupContent>
                 <SidebarMenu>
                   {secondNavItems.map((item) => {
-                    const isActive = item.onlyActivePath ? window.location.href === item.href : window.location.href.startsWith(item.href);
+                    const isActive = item.onlyActivePath ? currentPath() === item.href : window.location.href.startsWith(item.href);
 
                     if (item.children && item.children.length > 0) {
+                      const groupActive =
+                        isActive ||
+                        item.children.some((childItem) =>
+                          childItem.hidden
+                            ? false
+                            : childItem.onlyActivePath
+                              ? currentPath() === childItem.href
+                              : window.location.href.startsWith(childItem.href),
+                        );
+
                       return (
-                        <Collapsible key={`${item.title}-${item.href}`} defaultOpen={isActive} className="group/collapsible">
+                        <Collapsible key={`${item.title}-${item.href}`} defaultOpen={groupActive} className="group/collapsible">
                           <SidebarMenuItem>
                             <CollapsibleTrigger asChild>
                               <SidebarMenuButton disabled={item.isDisabled || false} hidden={item.hidden}>
@@ -172,9 +227,7 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
                                     <SidebarMenuButton
                                       asChild
                                       isActive={
-                                        childItem.onlyActivePath
-                                          ? window.location.href === childItem.href
-                                          : window.location.href.startsWith(childItem.href)
+                                        childItem.onlyActivePath ? currentPath() === childItem.href : window.location.href.startsWith(childItem.href)
                                       }
                                     >
                                       {childItem.external ? (
@@ -183,7 +236,7 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
                                           <span>{childItem.title}</span>
                                         </a>
                                       ) : (
-                                        <Link href={childItem.href} prefetch>
+                                        <Link href={childItem.href}>
                                           {childItem.icon && <childItem.icon />}
                                           <span>{childItem.title}</span>
                                         </Link>
@@ -200,14 +253,18 @@ export function AppSidebar({ secondNavItems, secondNavTitle }: { secondNavItems?
 
                     return (
                       <SidebarMenuItem key={`${item.title}-${item.href}`} hidden={item.hidden}>
-                        <SidebarMenuButton isActive={isActive} disabled={item.isDisabled || false} asChild>
+                        <SidebarMenuButton isActive={isActive} asChild>
                           {item.external ? (
                             <a href={item.href} target="_blank">
                               {item.icon && <item.icon />}
                               <span>{item.title}</span>
                             </a>
                           ) : (
-                            <Link href={item.href} disabled={item.isDisabled || false}>
+                            <Link
+                              href={item.isDisabled ? '#' : item.href}
+                              disabled={item.isDisabled || false}
+                              className={item.isDisabled ? 'pointer-events-none opacity-50' : ''}
+                            >
                               {item.icon && <item.icon />}
                               <span>{item.title}</span>
                             </Link>

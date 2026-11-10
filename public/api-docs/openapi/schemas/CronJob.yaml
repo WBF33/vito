@@ -1,0 +1,39 @@
+type: object
+properties:
+  id:
+    type: integer
+    example: 1
+  name:
+    type: string
+    nullable: true
+    example: 'Schedule runner'
+  server_id:
+    type: integer
+    example: 1
+  site_id:
+    type: integer
+    nullable: true
+    example: 1
+  command:
+    type: string
+    example: 'php artisan schedule:run'
+  user:
+    type: string
+    example: 'www-data'
+  frequency:
+    type: string
+    example: '* * * * *'
+  status:
+    type: string
+    enum: ['creating', 'ready', 'deleting', 'enabling', 'disabling', 'updating', 'disabled']
+    example: 'ready'
+  status_color:
+    type: string
+    enum: ['warning', 'success', 'danger', 'gray']
+    example: 'success'
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time

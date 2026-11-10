@@ -1,6 +1,7 @@
 import { Head, usePage } from '@inertiajs/react';
 import { Site } from '@/types/site';
 import ServerLayout from '@/layouts/server/layout';
+import SiteBanners from '@/components/site-banners';
 import { Server } from '@/types/server';
 import Container from '@/components/container';
 import HeaderContainer from '@/components/header-container';
@@ -9,6 +10,7 @@ import { PaginatedData } from '@/types';
 import { ServerLog } from '@/types/server-log';
 import { DataTable } from '@/components/data-table';
 import { columns } from '@/pages/server-logs/components/columns';
+import { useRealtime } from '@/hooks/use-socket-events';
 
 type Page = {
   server: Server;
@@ -18,6 +20,7 @@ type Page = {
 
 export default function ShowSite() {
   const page = usePage<Page>();
+  const [logs] = useRealtime<ServerLog>(page.props.logs, 'server-log', { site_id: page.props.site.id });
 
   return (
     <ServerLayout>
@@ -28,7 +31,9 @@ export default function ShowSite() {
           <Heading title="Logs" description="Here you can see your site's logs" />
         </HeaderContainer>
 
-        <DataTable columns={columns} paginatedData={page.props.logs} searchable />
+        <SiteBanners site={page.props.site} />
+
+        <DataTable columns={columns} paginatedData={logs} searchable />
       </Container>
     </ServerLayout>
   );

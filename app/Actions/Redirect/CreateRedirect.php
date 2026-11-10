@@ -3,10 +3,9 @@
 namespace App\Actions\Redirect;
 
 use App\Enums\RedirectStatus;
+use App\Jobs\Redirect\CreateJob;
 use App\Models\Redirect;
-use App\Models\Service;
 use App\Models\Site;
-use App\Services\Webserver\Webserver;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
@@ -17,7 +16,7 @@ class CreateRedirect
      */
     public function create(Site $site, array $input): Redirect
     {
-        Validator::make($input, self::rules($site))->validate();
+        $this->validate($site, $input);
 
         $redirect = new Redirect;
 
@@ -25,35 +24,18 @@ class CreateRedirect
         $redirect->from = $input['from'];
         $redirect->to = $input['to'];
         $redirect->mode = $input['mode'];
+        $redirect->websocket = ((int) $input['mode'] === Redirect::MODE_PROXY) && ($input['websocket'] ?? false);
         $redirect->status = RedirectStatus::CREATING;
         $redirect->save();
 
-        dispatch(function () use ($site, $redirect): void {
-            /** @var Service $service */
-            $service = $site->server->webserver();
-            /** @var Webserver $webserver */
-            $webserver = $service->handler();
-            $webserver->updateVHost($site, regenerate: [
-                'redirects',
-            ]);
-            $redirect->status = RedirectStatus::READY;
-            $redirect->save();
-        })
-            ->catch(function () use ($redirect): void {
-                $redirect->status = RedirectStatus::FAILED;
-                $redirect->save();
-            })
-            ->onQueue('ssh-unique');
+        dispatch(new CreateJob($site, $redirect))->onQueue('ssh');
 
         return $redirect->refresh();
     }
 
-    /**
-     * @return array<string, array<string>>
-     */
-    public static function rules(Site $site): array
+    private function validate(Site $site, array $input): void
     {
-        return [
+        $rules = [
             'from' => [
                 'required',
                 'string',
@@ -73,8 +55,15 @@ class CreateRedirect
                     302,
                     307,
                     308,
+                    Redirect::MODE_PROXY,
                 ]),
             ],
+            'websocket' => [
+                'nullable',
+                'boolean',
+            ],
         ];
+
+        Validator::make($input, $rules)->validate();
     }
 }

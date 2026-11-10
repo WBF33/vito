@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\MustBeAdminMiddleware;
 use Illuminate\Support\Str;
 
 return [
@@ -72,7 +73,7 @@ return [
 
     'middleware' => [
         'web',
-        \App\Http\Middleware\MustBeAdminMiddleware::class,
+        MustBeAdminMiddleware::class,
     ],
 
     /*
@@ -169,7 +170,7 @@ return [
     |
     */
 
-    'memory_limit' => 64,
+    'memory_limit' => env('HORIZON_MEMORY_LIMIT', 64),
 
     /*
     |--------------------------------------------------------------------------
@@ -188,54 +189,54 @@ return [
             'queue' => ['default'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 128,
-            'tries' => 1,
-            'timeout' => 90,
-            'nice' => 0,
+            'maxProcesses' => env('HORIZON_DEFAULT_MAX_PROCESSES', 1),
+            'maxTime' => env('HORIZON_DEFAULT_MAX_TIME', 0),
+            'maxJobs' => env('HORIZON_DEFAULT_MAX_JOBS', 0),
+            'memory' => env('HORIZON_DEFAULT_MEMORY', 128),
+            'tries' => env('HORIZON_DEFAULT_TRIES', 1),
+            'timeout' => env('HORIZON_DEFAULT_TIMEOUT', 90),
+            'nice' => env('HORIZON_DEFAULT_NICE', 0),
         ],
 
         'ssh' => [
-            'connection' => 'redis',
+            'connection' => 'ssh',
             'queue' => ['ssh'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 128,
-            'tries' => 1,
-            'timeout' => 600,
-            'nice' => 0,
+            'maxProcesses' => env('HORIZON_SSH_MAX_PROCESSES', 1),
+            'maxTime' => env('HORIZON_SSH_MAX_TIME', 0),
+            'maxJobs' => env('HORIZON_SSH_MAX_JOBS', 0),
+            'memory' => env('HORIZON_SSH_MEMORY', 128),
+            'tries' => env('HORIZON_SSH_TRIES', 1),
+            'timeout' => env('HORIZON_SSH_TIMEOUT', 1200),
+            'nice' => env('HORIZON_SSH_NICE', 0),
         ],
 
-        'ssh-unique' => [
+        'ssh-certbot' => [
             'connection' => 'redis',
-            'queue' => ['ssh-unique'],
+            'queue' => ['ssh-certbot'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 128,
-            'tries' => 1,
-            'timeout' => 600,
-            'nice' => 0,
+            'maxProcesses' => env('HORIZON_SSH_CERTBOT_MAX_PROCESSES', 1),
+            'maxTime' => env('HORIZON_SSH_CERTBOT_MAX_TIME', 0),
+            'maxJobs' => env('HORIZON_SSH_CERTBOT_MAX_JOBS', 0),
+            'memory' => env('HORIZON_SSH_CERTBOT_MEMORY', 128),
+            'tries' => env('HORIZON_SSH_CERTBOT_TRIES', 1),
+            'timeout' => env('HORIZON_SSH_CERTBOT_TIMEOUT', 600),
+            'nice' => env('HORIZON_SSH_CERTBOT_NICE', 0),
         ],
     ],
 
     'environments' => [
         '*' => [
             'default' => [
-                'maxProcesses' => 3,
+                'maxProcesses' => env('HORIZON_DEFAULT_MAX_PROCESSES', 3),
             ],
             'ssh' => [
-                'maxProcesses' => 3,
+                'maxProcesses' => env('HORIZON_SSH_MAX_PROCESSES', 3),
             ],
-            'ssh-unique' => [
-                'maxProcesses' => 1,
+            'ssh-certbot' => [
+                'maxProcesses' => env('HORIZON_SSH_CERTBOT_MAX_PROCESSES', 1),
             ],
         ],
     ],

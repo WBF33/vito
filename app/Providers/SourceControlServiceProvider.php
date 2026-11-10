@@ -6,8 +6,10 @@ use App\DTOs\DynamicField;
 use App\DTOs\DynamicForm;
 use App\Plugins\RegisterSourceControl;
 use App\SourceControlProviders\Bitbucket;
+use App\SourceControlProviders\BitbucketV2;
 use App\SourceControlProviders\Gitea;
 use App\SourceControlProviders\Github;
+use App\SourceControlProviders\GithubApp;
 use App\SourceControlProviders\Gitlab;
 use Illuminate\Support\ServiceProvider;
 
@@ -18,9 +20,20 @@ class SourceControlServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->github();
+        $this->githubApp();
         $this->gitlab();
         $this->bitbucket();
+        $this->bitbucketV2();
         $this->gitea();
+    }
+
+    private function githubApp(): void
+    {
+        RegisterSourceControl::make(GithubApp::id())
+            ->label('GitHub App')
+            ->handler(GithubApp::class)
+            ->connectable(false)
+            ->register();
     }
 
     private function github(): void
@@ -51,6 +64,12 @@ class SourceControlServiceProvider extends ServiceProvider
                     DynamicField::make('url')
                         ->text()
                         ->label('Self hosted URL'),
+                    DynamicField::make('ssh_port')
+                        ->text()
+                        ->label('SSH Port')
+                        ->default(22)
+                        ->placeholder('22')
+                        ->description('Numeric SSH port used when cloning repositories (default: 22).'),
                 ])
             )
             ->register();
@@ -59,7 +78,7 @@ class SourceControlServiceProvider extends ServiceProvider
     private function bitbucket(): void
     {
         RegisterSourceControl::make(Bitbucket::id())
-            ->label('Bitbucket')
+            ->label('Bitbucket (deprecated)')
             ->handler(Bitbucket::class)
             ->form(
                 DynamicForm::make([
@@ -69,6 +88,24 @@ class SourceControlServiceProvider extends ServiceProvider
                     DynamicField::make('password')
                         ->text()
                         ->label('Password'),
+                ])
+            )
+            ->register();
+    }
+
+    private function bitbucketV2(): void
+    {
+        RegisterSourceControl::make(BitbucketV2::id())
+            ->label('Bitbucket V2')
+            ->handler(BitbucketV2::class)
+            ->form(
+                DynamicForm::make([
+                    DynamicField::make('key')
+                        ->text()
+                        ->label('Key'),
+                    DynamicField::make('secret')
+                        ->text()
+                        ->label('Secret'),
                 ])
             )
             ->register();
@@ -87,6 +124,12 @@ class SourceControlServiceProvider extends ServiceProvider
                     DynamicField::make('url')
                         ->text()
                         ->label('Self hosted URL'),
+                    DynamicField::make('ssh_port')
+                        ->text()
+                        ->label('SSH Port')
+                        ->default(22)
+                        ->placeholder('22')
+                        ->description('Numeric SSH port used when cloning repositories (default: 22).'),
                 ])
             )
             ->register();

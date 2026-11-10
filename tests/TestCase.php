@@ -3,7 +3,6 @@
 namespace Tests;
 
 use App\Enums\ServiceStatus;
-use App\Enums\UserRole;
 use App\Models\NotificationChannel;
 use App\Models\Redirect;
 use App\Models\Server;
@@ -13,26 +12,29 @@ use App\Models\User;
 use App\NotificationChannels\Email;
 use App\Services\Database\Mysql;
 use App\Services\Firewall\Ufw;
+use App\Services\NodeJS\NodeJS;
 use App\Services\PHP\PHP;
 use App\Services\ProcessManager\Supervisor;
 use App\Services\Redis\Redis;
 use App\Services\Webserver\Nginx;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\ParallelTesting;
+use Illuminate\Support\Sleep;
 
 abstract class TestCase extends BaseTestCase
 {
     use CreatesApplication;
 
-    protected User $user;
+    public User $user;
 
-    protected Server $server;
+    public Server $server;
 
-    protected Site $site;
+    public Site $site;
 
-    protected Redirect $redirect;
+    public Redirect $redirect;
 
-    protected NotificationChannel $notificationChannel;
+    public NotificationChannel $notificationChannel;
 
     public const EXPECT_SUCCESS = true;
 
@@ -42,13 +44,14 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
+        $this->withoutVite();
+        Sleep::fake();
         config()->set('queue.connections.ssh.driver', 'sync');
-        config()->set('filesystems.disks.key-pairs.root', storage_path('app/key-pairs-test'));
+        config()->set('queue.connections.default.driver', 'sync');
+        config()->set('filesystems.disks.key-pairs.root', storage_path('app/key-pairs-test'.$this->parallelToken()));
 
-        $this->user = User::factory()->create([
-            'role' => UserRole::ADMIN,
-        ]);
-        $this->user->createDefaultProject();
+        $this->user = User::factory()->create();
+        $this->user->ensureHasDefaultProject();
 
         $this->notificationChannel = NotificationChannel::factory()->create([
             'provider' => Email::id(),
@@ -69,9 +72,16 @@ abstract class TestCase extends BaseTestCase
     {
         parent::tearDown();
 
-        if (File::exists(storage_path('app/key-pairs-test'))) {
-            File::deleteDirectory(storage_path('app/key-pairs-test'));
+        if (File::exists(storage_path('app/key-pairs-test'.$this->parallelToken()))) {
+            File::deleteDirectory(storage_path('app/key-pairs-test'.$this->parallelToken()));
         }
+    }
+
+    private function parallelToken(): string
+    {
+        $token = ParallelTesting::token();
+
+        return $token ? '-'.$token : '';
     }
 
     private function setupServer(): void
@@ -94,7 +104,7 @@ abstract class TestCase extends BaseTestCase
         $this->server->services()->create([
             'type' => Mysql::type(),
             'name' => Mysql::id(),
-            'version' => '8.0',
+            'version' => '8.4',
         ]);
         $this->server->services()->create([
             'type' => PHP::type(),
@@ -116,6 +126,11 @@ abstract class TestCase extends BaseTestCase
             'name' => Redis::id(),
             'version' => 'latest',
         ]);
+        $this->server->services()->create([
+            'type' => NodeJS::type(),
+            'name' => NodeJS::id(),
+            'version' => '20',
+        ]);
 
         $this->server->services()->update([
             'status' => ServiceStatus::READY,
@@ -133,7 +148,6 @@ abstract class TestCase extends BaseTestCase
         $sourceControl = SourceControl::factory()->github()->create();
         $this->site = Site::factory()->create([
             'domain' => 'vito.test',
-            'aliases' => ['www.vito.test'],
             'server_id' => $this->server->id,
             'source_control_id' => $sourceControl->id,
             'repository' => 'organization/repository',
@@ -151,12 +165,13 @@ abstract class TestCase extends BaseTestCase
 
     private function setupKeys(): void
     {
-        config()->set('core.ssh_public_key_name', 'test-key.pub');
-        config()->set('core.ssh_private_key_name', 'test-key');
+        $keyName = 'test-key'.$this->parallelToken();
+        config()->set('core.ssh_public_key_name', $keyName.'.pub');
+        config()->set('core.ssh_private_key_name', $keyName);
         $publicKeypath = storage_path(config('core.ssh_public_key_name'));
         $privateKeyPath = storage_path(config('core.ssh_private_key_name'));
         if (! File::exists($publicKeypath) || ! File::exists($privateKeyPath)) {
-            generate_key_pair(storage_path('test-key'));
+            generate_key_pair(storage_path($keyName));
         }
     }
 }

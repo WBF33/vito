@@ -11,14 +11,20 @@ import { columns } from '@/pages/server-logs/components/columns';
 import { Button } from '@/components/ui/button';
 import { BookOpenIcon, PlusIcon } from 'lucide-react';
 import LogForm from '@/pages/server-logs/components/form';
+import { useRealtime } from '@/hooks/use-socket-events';
 
 export default function ServerLogs() {
   const page = usePage<{
     title: string;
     server: Server;
     logs: PaginatedData<ServerLog>;
-    remote: boolean;
+    remote?: boolean;
   }>();
+
+  const [logs] = useRealtime<ServerLog>(page.props.logs, 'server-log', {
+    server_id: page.props.server.id,
+    is_remote: !!page.props.remote,
+  });
 
   return (
     <ServerLayout>
@@ -45,7 +51,7 @@ export default function ServerLogs() {
           </div>
         </HeaderContainer>
 
-        <DataTable columns={columns} paginatedData={page.props.logs} searchable />
+        <DataTable columns={columns} paginatedData={logs} searchable sortable />
       </Container>
     </ServerLayout>
   );

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\SSHError;
 use App\Models\Service;
 
 abstract class AbstractService implements ServiceInterface
@@ -38,8 +39,45 @@ abstract class AbstractService implements ServiceInterface
         //
     }
 
+    public function versionCommand(): ?string
+    {
+        return null;
+    }
+
+    public function parseVersionOutput(string $output): ?string
+    {
+        $version = trim($output);
+
+        return $version === '' ? null : $version;
+    }
+
+    /**
+     * @throws SSHError
+     */
     public function version(): string
     {
-        return $this->service->version;
+        $command = $this->versionCommand();
+
+        if ($command === null) {
+            return $this->service->version;
+        }
+
+        $output = $this->service->server->ssh()->exec($command);
+
+        return $this->parseVersionOutput($output) ?? trim($output);
+    }
+
+    public function canBeManaged(): bool
+    {
+        return (bool) $this->unit();
+    }
+
+    public function manage(string $action): bool
+    {
+        $expectedState = in_array($action, ['stop', 'disable'], true) ? 'Active: inactive' : 'Active: active';
+
+        $status = $this->service->server->systemd()->{$action}($this->unit());
+
+        return str($status)->contains($expectedState);
     }
 }

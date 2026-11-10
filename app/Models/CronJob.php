@@ -9,13 +9,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property int $server_id
+ * @property ?int $site_id
  * @property string $command
  * @property string $user
  * @property string $frequency
  * @property bool $hidden
- * @property string $status
+ * @property string|null $name
+ * @property CronjobStatus $status
  * @property string $crontab
  * @property Server $server
+ * @property ?Site $site
  */
 class CronJob extends AbstractModel
 {
@@ -24,28 +27,19 @@ class CronJob extends AbstractModel
 
     protected $fillable = [
         'server_id',
+        'site_id',
         'command',
         'user',
         'frequency',
-        'hidden',
         'status',
+        'name',
     ];
 
     protected $casts = [
         'server_id' => 'integer',
+        'site_id' => 'integer',
         'hidden' => 'boolean',
-    ];
-
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        CronjobStatus::CREATING => 'warning',
-        CronjobStatus::READY => 'success',
-        CronjobStatus::DELETING => 'danger',
-        CronjobStatus::ENABLING => 'warning',
-        CronjobStatus::DISABLING => 'warning',
-        CronjobStatus::DISABLED => 'gray',
+        'status' => CronjobStatus::class,
     ];
 
     /**
@@ -54,6 +48,25 @@ class CronJob extends AbstractModel
     public function server(): BelongsTo
     {
         return $this->belongsTo(Server::class);
+    }
+
+    /**
+     * @return BelongsTo<Site, covariant $this>
+     */
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class);
+    }
+
+    public function getServerIdAttribute(?int $value): ?int
+    {
+        if ($value === 0 && $this->site) {
+            $value = $this->site->server_id;
+            $this->fill(['server_id' => $this->site->server_id]);
+            $this->save();
+        }
+
+        return $value;
     }
 
     public static function crontab(Server $server, string $user): string
@@ -70,13 +83,34 @@ class CronJob extends AbstractModel
             ->get();
         /** @var CronJob $cronJob */
         foreach ($cronJobs as $key => $cronJob) {
-            $data .= $cronJob->frequency.' '.$cronJob->command;
+            $command = $user === 'root' ? $cronJob->command : self::wrapCommand($cronJob->command);
+            $data .= $cronJob->frequency.' '.$command;
             if ($key != count($cronJobs) - 1) {
                 $data .= "\n";
             }
         }
 
         return $data;
+    }
+
+    public static function wrapCommand(string $command): string
+    {
+        return 'bash -lc '.escapeshellarg($command);
+    }
+
+    public static function unwrapCommand(string $command): ?string
+    {
+        $prefix = 'bash -lc ';
+        if (! str_starts_with($command, $prefix)) {
+            return null;
+        }
+
+        $argument = trim(substr($command, strlen($prefix)));
+        if (strlen($argument) < 2 || ! str_starts_with($argument, "'") || ! str_ends_with($argument, "'")) {
+            return null;
+        }
+
+        return str_replace("'\\''", "'", substr($argument, 1, -1));
     }
 
     public function frequencyLabel(): string

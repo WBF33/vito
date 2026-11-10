@@ -33,6 +33,25 @@ interface SourceControlProvider
 
     public function fullRepoUrl(string $repo, string $key): string;
 
+    public function getSshPort(): int;
+
+    /**
+     * @return array<int, string>
+     */
+    public static function editableFields(): array;
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, array<int, string>>
+     */
+    public function editRules(array $input): array;
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    public function editData(array $input): array;
+
     /**
      * @param  array<int, mixed>  $events
      * @return array<string, mixed>
@@ -54,10 +73,16 @@ interface SourceControlProvider
     /**
      * @throws FailedToDeployGitKey
      */
-    public function deployKey(string $title, string $repo, string $key): void;
+    public function deployKey(string $title, string $repo, string $key): string;
+
+    public function deleteDeployKey(string $keyId, string $repo): void;
 
     /**
      * @param  array<string, mixed>  $payload
      */
     public function getWebhookBranch(array $payload): string;
+
+    public function getRepos(bool $useCache = true): array;
+
+    public function getBranches(string $repo, bool $useCache = true): array;
 }

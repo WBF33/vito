@@ -1,329 +1,462 @@
 <?php
 
-namespace Tests\Feature\API;
-
 use App\Enums\WorkerStatus;
 use App\Facades\SSH;
+use App\Jobs\Worker\RestartAllJob;
+use App\Models\Server;
 use App\Models\Site;
 use App\Models\Worker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
-use Tests\TestCase;
 
-class WorkersTest extends TestCase
-{
-    use RefreshDatabase;
+uses(RefreshDatabase::class);
 
-    public function test_see_server_workers_list(): void
-    {
-        Sanctum::actingAs($this->user, ['read']);
+test('see server workers list', function () {
+    Sanctum::actingAs($this->user, ['read']);
 
-        $this->json('GET', route('api.projects.servers.workers', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-        ]))
-            ->assertSuccessful();
-    }
+    $this->json('GET', route('api.projects.servers.workers', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+    ]))
+        ->assertSuccessful();
+});
 
-    public function test_see_site_workers_list(): void
-    {
-        Sanctum::actingAs($this->user, ['read']);
+test('see site workers list', function () {
+    Sanctum::actingAs($this->user, ['read']);
 
-        /** @var Site $site */
-        $site = Site::factory()->create([
-            'server_id' => $this->server->id,
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
+
+    $this->json('GET', route('api.projects.servers.sites.workers', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $site,
+    ]))
+        ->assertSuccessful();
+});
+
+test('see server worker', function () {
+    Sanctum::actingAs($this->user, ['read']);
+
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+    ]);
+
+    $this->json('GET', route('api.projects.servers.workers.show', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful();
+});
+
+test('see site worker', function () {
+    Sanctum::actingAs($this->user, ['read']);
+
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
+
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+        'site_id' => $site->id,
+    ]);
+
+    $this->json('GET', route('api.projects.servers.sites.workers.show', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $site,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful();
+});
+
+test('create server worker', function () {
+    SSH::fake();
+
+    Sanctum::actingAs($this->user, ['read', 'write']);
+
+    $this->json('POST', route('api.projects.servers.workers.create', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+    ]), [
+        'name' => 'Test Worker',
+        'command' => 'php artisan worker:work',
+        'user' => 'vito',
+        'auto_start' => true,
+        'auto_restart' => true,
+        'numprocs' => 1,
+    ])
+        ->assertSuccessful()
+        ->assertJsonFragment([
+            'status' => WorkerStatus::CREATING,
         ]);
 
-        $this->json('GET', route('api.projects.servers.sites.workers', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'site' => $site,
-        ]))
-            ->assertSuccessful();
-    }
+    $this->assertDatabaseHas('workers', [
+        'status' => WorkerStatus::RUNNING,
+        'name' => 'Test Worker',
+    ]);
+});
 
-    public function test_see_server_worker(): void
-    {
-        Sanctum::actingAs($this->user, ['read']);
+test('create site worker', function () {
+    SSH::fake();
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
+    Sanctum::actingAs($this->user, ['read', 'write']);
+
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
+
+    $this->json('POST', route('api.projects.servers.workers.create', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $site,
+    ]), [
+        'name' => 'Test Worker',
+        'command' => 'php artisan worker:work',
+        'user' => 'vito',
+        'auto_start' => true,
+        'auto_restart' => true,
+        'numprocs' => 1,
+    ])
+        ->assertSuccessful()
+        ->assertJsonFragment([
+            'status' => WorkerStatus::CREATING,
         ]);
 
-        $this->json('GET', route('api.projects.servers.workers.show', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful();
-    }
+    $this->assertDatabaseHas('workers', [
+        'site_id' => $site->id,
+        'status' => WorkerStatus::RUNNING,
+        'name' => 'Test Worker',
+    ]);
+});
 
-    public function test_see_site_worker(): void
-    {
-        Sanctum::actingAs($this->user, ['read']);
+test('update server worker', function () {
+    SSH::fake();
 
-        /** @var Site $site */
-        $site = Site::factory()->create([
-            'server_id' => $this->server->id,
+    Sanctum::actingAs($this->user, ['read', 'write']);
+
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+        'numprocs' => 1,
+    ]);
+
+    $this->json('PUT', route('api.projects.servers.workers.update', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+    ]), [
+        'name' => $worker->name,
+        'command' => $worker->command,
+        'user' => $worker->user,
+        'auto_start' => $worker->auto_start,
+        'auto_restart' => $worker->auto_restart,
+        'numprocs' => 2,
+    ])
+        ->assertSuccessful();
+
+    $this->assertDatabaseHas('workers', [
+        'numprocs' => 2,
+    ]);
+});
+
+test('update site worker', function () {
+    SSH::fake();
+
+    Sanctum::actingAs($this->user, ['read', 'write']);
+
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
+
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+        'site_id' => $site->id,
+        'numprocs' => 1,
+    ]);
+
+    $this->json('PUT', route('api.projects.servers.workers.update', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+        'site' => $site,
+    ]), [
+        'name' => $worker->name,
+        'command' => $worker->command,
+        'user' => $worker->user,
+        'auto_start' => $worker->auto_start,
+        'auto_restart' => $worker->auto_restart,
+        'numprocs' => 2,
+    ])
+        ->assertSuccessful();
+
+    $this->assertDatabaseHas('workers', [
+        'site_id' => $site->id,
+        'numprocs' => 2,
+    ]);
+});
+
+test('start worker', function () {
+    SSH::fake();
+
+    Sanctum::actingAs($this->user, ['read', 'write']);
+
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+    ]);
+
+    $this->json('POST', route('api.projects.servers.workers.start', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful()
+        ->assertJsonFragment([
+            'status' => WorkerStatus::STARTING,
         ]);
+});
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-            'site_id' => $site->id,
+test('restart worker', function () {
+    SSH::fake();
+
+    Sanctum::actingAs($this->user, ['read', 'write']);
+
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+    ]);
+
+    $this->json('POST', route('api.projects.servers.workers.restart', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful()
+        ->assertJsonFragment([
+            'status' => WorkerStatus::RESTARTING,
         ]);
+});
 
-        $this->json('GET', route('api.projects.servers.sites.workers.show', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'site' => $site,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful();
-    }
+test('delete server worker', function () {
+    SSH::fake();
 
-    public function test_create_server_worker(): void
-    {
-        SSH::fake();
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+    ]);
 
-        $this->json('POST', route('api.projects.servers.workers.create', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-        ]), [
-            'name' => 'Test Worker',
-            'command' => 'php artisan worker:work',
-            'user' => 'vito',
-            'auto_start' => true,
-            'auto_restart' => true,
-            'numprocs' => 1,
-        ])
-            ->assertSuccessful()
-            ->assertJsonFragment([
-                'status' => WorkerStatus::CREATING,
-            ]);
+    $this->json('DELETE', route('api.projects.servers.workers.delete', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful()
+        ->assertNoContent();
+});
 
-        $this->assertDatabaseHas('workers', [
-            'status' => WorkerStatus::RUNNING,
-            'name' => 'Test Worker',
-        ]);
-    }
+test('see worker logs', function () {
+    SSH::fake();
 
-    public function test_create_site_worker(): void
-    {
-        SSH::fake();
+    Sanctum::actingAs($this->user, ['read']);
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+    ]);
 
-        /** @var Site $site */
-        $site = Site::factory()->create([
-            'server_id' => $this->server->id,
-        ]);
+    $this->json('GET', route('api.projects.servers.workers.logs', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful()
+        ->assertExactJson(['logs' => 'fake output']);
+});
 
-        $this->json('POST', route('api.projects.servers.workers.create', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'site' => $site,
-        ]), [
-            'name' => 'Test Worker',
-            'command' => 'php artisan worker:work',
-            'user' => 'vito',
-            'auto_start' => true,
-            'auto_restart' => true,
-            'numprocs' => 1,
-        ])
-            ->assertSuccessful()
-            ->assertJsonFragment([
-                'status' => WorkerStatus::CREATING,
-            ]);
+test('delete site worker', function () {
+    SSH::fake();
 
-        $this->assertDatabaseHas('workers', [
-            'site_id' => $site->id,
-            'status' => WorkerStatus::RUNNING,
-            'name' => 'Test Worker',
-        ]);
-    }
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-    public function test_update_server_worker(): void
-    {
-        SSH::fake();
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+        'site_id' => $site->id,
+    ]);
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-            'numprocs' => 1,
-        ]);
+    $this->json('DELETE', route('api.projects.servers.workers.delete', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $site,
+        'worker' => $worker,
+    ]))
+        ->assertSuccessful()
+        ->assertNoContent();
+});
 
-        $this->json('PUT', route('api.projects.servers.workers.update', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-        ]), [
-            'name' => $worker->name,
-            'command' => $worker->command,
-            'user' => $worker->user,
-            'auto_start' => $worker->auto_start,
-            'auto_restart' => $worker->auto_restart,
-            'numprocs' => 2,
-        ])
-            ->assertSuccessful();
+test('cannot update site bootstrap worker', function () {
+    SSH::fake();
 
-        $this->assertDatabaseHas('workers', [
-            'numprocs' => 2,
-        ]);
-    }
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-    public function test_update_site_worker(): void
-    {
-        SSH::fake();
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+        'site_id' => $site->id,
+        'numprocs' => 1,
+    ]);
 
-        /** @var Site $site */
-        $site = Site::factory()->create([
-            'server_id' => $this->server->id,
-        ]);
+    $site->jsonUpdate('type_data', 'bootstrap_worker_id', $worker->id);
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-            'site_id' => $site->id,
-            'numprocs' => 1,
-        ]);
+    $this->json('PUT', route('api.projects.servers.workers.update', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $site,
+        'worker' => $worker,
+    ]), [
+        'name' => 'renamed',
+        'command' => 'renamed command',
+        'user' => $worker->user,
+        'auto_start' => $worker->auto_start,
+        'auto_restart' => $worker->auto_restart,
+        'numprocs' => 2,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['name']);
 
-        $this->json('PUT', route('api.projects.servers.workers.update', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-            'site' => $site,
-        ]), [
-            'name' => $worker->name,
-            'command' => $worker->command,
-            'user' => $worker->user,
-            'auto_start' => $worker->auto_start,
-            'auto_restart' => $worker->auto_restart,
-            'numprocs' => 2,
-        ])
-            ->assertSuccessful();
+    $this->assertDatabaseMissing('workers', [
+        'id' => $worker->id,
+        'command' => 'renamed command',
+    ]);
+});
 
-        $this->assertDatabaseHas('workers', [
-            'site_id' => $site->id,
-            'numprocs' => 2,
-        ]);
-    }
+test('cannot delete site bootstrap worker', function () {
+    SSH::fake();
 
-    public function test_start_worker(): void
-    {
-        SSH::fake();
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    /** @var Site $site */
+    $site = Site::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-        ]);
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server,
+        'site_id' => $site->id,
+    ]);
 
-        $this->json('POST', route('api.projects.servers.workers.start', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful()
-            ->assertJsonFragment([
-                'status' => WorkerStatus::STARTING,
-            ]);
-    }
+    $site->jsonUpdate('type_data', 'bootstrap_worker_id', $worker->id);
 
-    public function test_restart_worker(): void
-    {
-        SSH::fake();
+    $this->json('DELETE', route('api.projects.servers.workers.delete', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $site,
+        'worker' => $worker,
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['name']);
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    $this->assertDatabaseHas('workers', ['id' => $worker->id]);
+});
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-        ]);
+test('resync workers', function () {
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-        $this->json('POST', route('api.projects.servers.workers.restart', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful()
-            ->assertJsonFragment([
-                'status' => WorkerStatus::RESTARTING,
-            ]);
-    }
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server->id,
+        'status' => WorkerStatus::FAILED,
+    ]);
 
-    public function test_delete_server_worker(): void
-    {
-        SSH::fake();
+    SSH::fake("{$worker->id}:{$worker->id}_00   RUNNING   pid 100, uptime 0:00:05");
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+    $this->json('POST', route('api.projects.servers.workers.resync', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+    ]))
+        ->assertSuccessful()
+        ->assertExactJson(['synced' => 1]);
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-        ]);
+    $this->assertDatabaseHas('workers', [
+        'id' => $worker->id,
+        'status' => WorkerStatus::RUNNING,
+    ]);
+});
 
-        $this->json('DELETE', route('api.projects.servers.workers.delete', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful()
-            ->assertNoContent();
-    }
+test('restart all workers', function () {
+    Queue::fake();
 
-    public function test_see_worker_logs(): void
-    {
-        SSH::fake();
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-        Sanctum::actingAs($this->user, ['read']);
+    /** @var Worker $worker */
+    $worker = Worker::factory()->create([
+        'server_id' => $this->server->id,
+        'status' => WorkerStatus::RUNNING,
+    ]);
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-        ]);
+    $this->json('POST', route('api.projects.servers.workers.restart-all', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+    ]))
+        ->assertStatus(202);
 
-        $this->json('GET', route('api.projects.servers.workers.logs', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful()
-            ->assertExactJson(['logs' => 'fake output']);
-    }
+    $this->assertDatabaseHas('workers', [
+        'id' => $worker->id,
+        'status' => WorkerStatus::RESTARTING,
+    ]);
 
-    public function test_delete_site_worker(): void
-    {
-        SSH::fake();
+    Queue::assertPushed(RestartAllJob::class);
+});
 
-        Sanctum::actingAs($this->user, ['read', 'write']);
+test('cannot resync workers without write ability', function () {
+    Sanctum::actingAs($this->user, ['read']);
 
-        /** @var Site $site */
-        $site = Site::factory()->create([
-            'server_id' => $this->server->id,
-        ]);
+    $this->json('POST', route('api.projects.servers.workers.resync', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+    ]))
+        ->assertForbidden();
+});
 
-        /** @var Worker $worker */
-        $worker = Worker::factory()->create([
-            'server_id' => $this->server,
-            'site_id' => $site->id,
-        ]);
+test('cannot resync workers for site on another server', function () {
+    Sanctum::actingAs($this->user, ['read', 'write']);
 
-        $this->json('DELETE', route('api.projects.servers.workers.delete', [
-            'project' => $this->server->project,
-            'server' => $this->server,
-            'site' => $site,
-            'worker' => $worker,
-        ]))
-            ->assertSuccessful()
-            ->assertNoContent();
-    }
-}
+    /** @var Server $otherServer */
+    $otherServer = Server::factory()->create(['user_id' => 1]);
+
+    /** @var Site $otherSite */
+    $otherSite = Site::factory()->create([
+        'server_id' => $otherServer->id,
+    ]);
+
+    $this->json('POST', route('api.projects.servers.workers.resync', [
+        'project' => $this->server->project,
+        'server' => $this->server,
+        'site' => $otherSite,
+    ]))
+        ->assertNotFound();
+});

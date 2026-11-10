@@ -3,6 +3,7 @@
 namespace App\Actions\Site;
 
 use App\Enums\CommandExecutionStatus;
+use App\Jobs\Site\ExecuteCommandJob;
 use App\Models\Command;
 use App\Models\CommandExecution;
 use App\Models\ServerLog;
@@ -16,7 +17,7 @@ class ExecuteCommand
      */
     public function execute(Command $command, User $user, array $input): CommandExecution
     {
-        Validator::make($input, self::rules($command))->validate();
+        $this->validate($command, $input);
 
         $variables = [];
         foreach ($command->getVariables() as $variable) {
@@ -39,32 +40,12 @@ class ExecuteCommand
         $execution->server_log_id = $log->id;
         $execution->save();
 
-        dispatch(function () use ($execution, $command, $log): void {
-            $content = $execution->getContent();
-            $execution->server_log_id = $log->id;
-            $execution->save();
-            $execution->server->os()->runScript(
-                path: $command->site->path,
-                script: $content,
-                serverLog: $log,
-                user: $command->site->user,
-                variables: $execution->variables,
-                aliases: $command->site->environmentAliases(),
-            );
-            $execution->status = CommandExecutionStatus::COMPLETED;
-            $execution->save();
-        })->catch(function () use ($execution): void {
-            $execution->status = CommandExecutionStatus::FAILED;
-            $execution->save();
-        })->onQueue('ssh');
+        dispatch(new ExecuteCommandJob($execution, $command, $log));
 
         return $execution;
     }
 
-    /**
-     * @return array<string, string|array<int, mixed>>
-     */
-    public static function rules(Command $command): array
+    private function validate(Command $command, array $input): void
     {
         $rules = [];
         foreach ($command->getVariables() as $variable) {
@@ -75,6 +56,6 @@ class ExecuteCommand
             ];
         }
 
-        return $rules;
+        Validator::make($input, $rules)->validate();
     }
 }

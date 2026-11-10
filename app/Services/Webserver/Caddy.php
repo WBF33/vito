@@ -2,17 +2,45 @@
 
 namespace App\Services\Webserver;
 
+use App\Actions\Site\EnsureSiteVerificationKey;
+use App\Actions\Webserver\GenerateCaddyConfig;
+use App\DTOs\ServiceLog;
+use App\Enums\SslMethod;
 use App\Exceptions\SSHError;
 use App\Exceptions\SSLCreationException;
 use App\Models\Site;
 use App\Models\Ssl;
+use App\Services\HasLogs;
 use Throwable;
 
-class Caddy extends AbstractWebserver
+class Caddy extends AbstractWebserver implements HasLogs
 {
     public static function id(): string
     {
         return 'caddy';
+    }
+
+    public function siteDefaults(): array
+    {
+        return [
+            'ssl_enabled' => true,
+            'force_ssl' => true,
+        ];
+    }
+
+    public function canConfigureSSL(): bool
+    {
+        return false;
+    }
+
+    public function allowedSslMethods(): ?array
+    {
+        return [SslMethod::LETSENCRYPT->value, SslMethod::CUSTOM->value];
+    }
+
+    public function defaultSslMethod(): SslMethod
+    {
+        return SslMethod::LETSENCRYPT;
     }
 
     public static function type(): string
@@ -30,10 +58,12 @@ class Caddy extends AbstractWebserver
      */
     public function install(): void
     {
-        $this->service->server->ssh()->exec(
-            view('ssh.services.webserver.caddy.install-caddy'),
-            'install-caddy'
-        );
+        $this->service->server->ssh()
+            ->setLog($this->service->log)
+            ->exec(
+                view('ssh.services.webserver.caddy.install-caddy'),
+                'install-caddy'
+            );
 
         $this->service->server->ssh()->write(
             '/etc/caddy/Caddyfile',
@@ -48,6 +78,8 @@ class Caddy extends AbstractWebserver
         );
 
         $this->service->server->ssh()->exec('sudo systemctl daemon-reload', 'reload-systemctl');
+
+        $this->deploySplash();
 
         $this->service->server->systemd()->restart('caddy');
         event('service.installed', $this->service);
@@ -99,22 +131,29 @@ class Caddy extends AbstractWebserver
         );
     }
 
+    public function generateVhost(Site $site, ?string $template = null): string
+    {
+        app(EnsureSiteVerificationKey::class)->ensure($site);
+
+        return app(GenerateCaddyConfig::class)->generate($site, $template);
+    }
+
     /**
      * @throws SSHError
      */
-    public function updateVHost(Site $site, ?string $vhost = null, array $replace = [], array $regenerate = [], array $append = [], bool $restart = true): void
+    public function updateVHost(Site $site, ?string $vhost = null, bool $restart = false): void
     {
-        if (! $vhost) {
-            $vhost = $this->getVHost($site);
+        if (! $vhost && ! $site->vhost_generation_enabled) {
+            return;
         }
 
-        if (! $vhost || ! preg_match('/#\[main]/', $vhost)) {
+        if (! $vhost) {
             $vhost = $this->generateVhost($site);
         }
 
         $this->service->server->ssh()->write(
             '/etc/caddy/sites-available/'.$site->domain,
-            format_nginx_config($this->getUpdatedVHost($site, $vhost, $replace, $regenerate, $append)),
+            $vhost,
             'root'
         );
 
@@ -152,23 +191,7 @@ class Caddy extends AbstractWebserver
             'delete-vhost',
             $site->id
         );
-        $this->service->restart();
-    }
-
-    /**
-     * @throws SSHError
-     */
-    public function changePHPVersion(Site $site, string $version): void
-    {
-        $this->service->server->ssh()->exec(
-            view('ssh.services.webserver.caddy.change-php-version', [
-                'domain' => $site->domain,
-                'oldVersion' => $site->php_version,
-                'newVersion' => $version,
-            ]),
-            'change-php-version',
-            $site->id
-        );
+        $this->service->reload();
     }
 
     /**
@@ -214,12 +237,46 @@ class Caddy extends AbstractWebserver
         $this->updateVHost($ssl->site);
     }
 
-    public function version(): string
+    /**
+     * @throws SSHError
+     */
+    public function deploySplash(): void
     {
-        $version = $this->service->server->ssh()->exec(
-            'caddy version | grep -oE \'[0-9]+\.[0-9]+\.[0-9]+\''
+        $ssh = $this->service->server->ssh();
+
+        $ssh->exec(
+            'sudo mkdir -p /var/www/vito-splash',
+            'create-vito-splash-dir'
         );
 
-        return trim($version);
+        $ssh->write(
+            '/var/www/vito-splash/index.html',
+            view('ssh.services.webserver.vito-splash'),
+            'root'
+        );
+
+        $ssh->write(
+            '/etc/caddy/sites-enabled/000-default.caddy',
+            view('ssh.services.webserver.caddy.default-vhost'),
+            'root'
+        );
+    }
+
+    public function versionCommand(): ?string
+    {
+        return 'caddy version | grep -oE \'[0-9]+\.[0-9]+\.[0-9]+\'';
+    }
+
+    public function logs(): array
+    {
+        return [
+            new ServiceLog(
+                key: 'caddy:error',
+                serviceLabel: 'Caddy',
+                label: 'Error log',
+                source: ServiceLog::SOURCE_FILE,
+                target: '/var/log/caddy/errors.log',
+            ),
+        ];
     }
 }

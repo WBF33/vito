@@ -1,13 +1,16 @@
 import { InputHTMLAttributes, useEffect, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DynamicFieldConfig } from '@/types/dynamic-field-config';
 import InputError from '@/components/ui/input-error';
 import { FormField } from '@/components/ui/form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TriangleAlertIcon } from 'lucide-react';
+import ServerProviderSelect from '@/pages/server-providers/components/server-provider-select';
 
 interface DynamicFieldProps {
   value: string | number | boolean | string[] | undefined;
@@ -21,8 +24,8 @@ export default function DynamicField({ value, onChange, config, error }: Dynamic
   const label = config?.label || defaultLabel;
   const [initialValue, setInitialValue] = useState(false);
 
-  if (!value) {
-    value = config?.default || '';
+  if (value === undefined || value === null) {
+    value = config?.default ?? '';
   }
 
   useEffect(() => {
@@ -92,6 +95,86 @@ export default function DynamicField({ value, onChange, config, error }: Dynamic
             </SelectGroup>
           </SelectContent>
         </Select>
+        {config.description && <p className="text-muted-foreground text-xs">{config.description}</p>}
+        <InputError message={error} />
+      </FormField>
+    );
+  }
+
+  // Handle textarea
+  if (config?.type === 'textarea') {
+    return (
+      <FormField>
+        <Label htmlFor={`field-${config.name}`} className="capitalize">
+          {label}
+        </Label>
+        <Textarea
+          name={config.name}
+          id={`field-${config.name}`}
+          defaultValue={(value as string) || ''}
+          placeholder={config.placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className={config.className}
+        />
+        {config.description && <p className="text-muted-foreground text-xs">{config.description}</p>}
+        <InputError message={error} />
+      </FormField>
+    );
+  }
+
+  // Handle password
+  if (config?.type === 'password') {
+    return (
+      <FormField>
+        <Label htmlFor={`field-${config.name}`} className="capitalize">
+          {label}
+        </Label>
+        <Input
+          type="password"
+          name={config.name}
+          id={`field-${config.name}`}
+          defaultValue={(value as string) || ''}
+          placeholder={config.placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {config.description && <p className="text-muted-foreground text-xs">{config.description}</p>}
+        <InputError message={error} />
+      </FormField>
+    );
+  }
+
+  // Handle password with visibility toggle
+  if (config?.type === 'password-with-toggle') {
+    return (
+      <FormField>
+        <Label htmlFor={`field-${config.name}`} className="capitalize">
+          {label}
+        </Label>
+        <PasswordInput
+          name={config.name}
+          id={`field-${config.name}`}
+          defaultValue={(value as string) || ''}
+          placeholder={config.placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {config.description && <p className="text-muted-foreground text-xs">{config.description}</p>}
+        <InputError message={error} />
+      </FormField>
+    );
+  }
+
+  // Handle server provider select
+  if (config?.type === 'component' && config?.name === 'server_provider') {
+    return (
+      <FormField>
+        <Label htmlFor={`field-${config.name}`} className="capitalize">
+          {label}
+        </Label>
+        <ServerProviderSelect value={value as string} onValueChange={(value) => onChange(value)} />
         {config.description && <p className="text-muted-foreground text-xs">{config.description}</p>}
         <InputError message={error} />
       </FormField>

@@ -34,7 +34,7 @@ jobs:
 
     outputs:
       version: ${{ steps.version.outputs.version }}
-      notes: ${{ steps.cleaned-notes.outputs.notes }}
+      notes: ${{ steps.fetch-release.outputs.notes }}
 
     steps:
       - name: Checkout repository
@@ -75,43 +75,16 @@ jobs:
           script: |
             core.setFailed('Workflow failed. Release version does not match with selected target branch. Did you select the correct branch?')
 
+      - name: Update config/app.php
+        run: sed -i "s/'version' => '[^']*'/'version' => '${{ steps.version.outputs.version }}'/" config/app.php
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ matrix.php }}
+          php-version: '8.4'
 
-      - name: Cache Composer packages
-        id: composer-cache
-        uses: actions/cache@v4
-        with:
-          path: vendor
-          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-php-
-
-      - name: Install dependencies
-        if: steps.composer-cache.outputs.cache-hit != 'true'
-        run: composer install --prefer-dist --no-progress --no-suggest
-
-      - name: Create sqlite database
-        run: touch storage/database.sqlite
-
-      - name: Set up the .env file
-        run: cp .env.example .env
-
-      - name: Generate Application Key
-        run: php artisan key:generate
-
-      - name: Migrate database
-        run: php artisan migrate:refresh --seed
-        env:
-          APP_ENV: local
-          APP_DEMO: true
-
-      - name: Generate API Docs
-        run: php artisan scribe:generate
-      - name: Update config/app.php
-        run: sed -i "s/'version' => '[^']*'/'version' => '${{ steps.version.outputs.version }}'/" config/app.php
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest --no-dev
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -137,33 +110,160 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
-          body: ${{ steps.cleaned-notes.outputs.notes }}
           target_commitish: ${{ github.ref_name }}
           make_latest: ${{ inputs.latest == 'true' }}
           prerelease: ${{ inputs.prerelease == 'true' }}
           generate_release_notes: true
 
-      - name: Install GitHub CLI
-        run: sudo apt-get install gh -y
-
-      - name: Get release notes from GitHub API
+      - name: Group release notes by prefix
         id: fetch-release
-        run: |
-          NOTES=$(gh release view ${{ steps.version.outputs.version }} --json body -q .body)
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Send release notes to Discord
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          DISCORD_MESSAGE=$(printf "**VitoDeploy ${{ steps.version.outputs.version }}** is out! 🎉🚀\n\`\`\`\n%s\n\`\`\`" "${{ steps.fetch-release.outputs.notes }}")
-          PAYLOAD=$(jq -n --arg content "$DISCORD_MESSAGE" '{content: $content}')
-          curl -H "Content-Type: application/json" \
-            -X POST \
-            -d "$PAYLOAD" \
-            "$DISCORD_WEBHOOK_URL"
+          RAW_NOTES=$(gh release view "$VERSION" --json body -q .body)
+          NOTES=$(printf '%s' "$RAW_NOTES" | bash .github/scripts/group-release-notes.sh)
+          gh release edit "$VERSION" --notes "$NOTES"
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Notify Discord
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping Discord notification"
+            exit 0
+          fi
+          TAG="${VERSION}"
+          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body \
+            | sed -E 's# by @[A-Za-z0-9_-]+ in https://github\.com/[^ ]+/pull/[0-9]+##g')
+          if [[ ${#NOTES} -gt 3800 ]]; then
+            NOTES="${NOTES:0:3800}…"
+          fi
+          URL="https://github.com/${REPO}/releases/tag/${TAG}"
+          if [[ "$PRERELEASE" == "true" ]]; then
+            FOOTER="Pre-release channel"
+            COLOR=15844367
+          else
+            FOOTER="Stable channel"
+            COLOR=3066993
+          fi
+          PAYLOAD=$(jq -n \
+            --arg title "VitoDeploy ${TAG} released" \
+            --arg url "$URL" \
+            --arg notes "$NOTES" \
+            --arg footer "$FOOTER" \
+            --argjson color "$COLOR" \
+            '{
+              username: "VitoDeploy Releases",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $notes,
+                color: $color,
+                footer: { text: $footer },
+                timestamp: (now | todate)
+              }]
+            }')
+          if ! curl -fsSL -H "Content-Type: application/json" \
+            -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"; then
+            echo "Discord notification failed; release succeeded regardless"
+          fi
 
+  docker-tags:
+    runs-on: ubuntu-24.04
+    needs: release
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Determine Docker tags
+        id: meta
+        env:
+          TAG_NAME: ${{ needs.release.outputs.version }}
+          COMMIT_REF: ${{ github.ref_name }}
+          IS_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          echo "Tag: $TAG_NAME"
+          echo "Branch: $COMMIT_REF"
+          echo "Is prerelease: $IS_PRERELEASE"
+
+          TAGS="vitodeploy/vito:$TAG_NAME"
+
+          if [[ "$COMMIT_REF" == 1.x* ]]; then
+            TAGS="$TAGS,vitodeploy/vito:1.x"
+          elif [[ "$COMMIT_REF" == 2.x* ]]; then
+            TAGS="$TAGS,vitodeploy/vito:2.x"
+          elif [[ "$COMMIT_REF" == 3.x* ]]; then
+            TAGS="$TAGS,vitodeploy/vito:3.x"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              TAGS="$TAGS,vitodeploy/vito:latest"
+            fi
+          elif [[ "$COMMIT_REF" == 4.x* ]]; then
+            TAGS="$TAGS,vitodeploy/vito:4.x"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              TAGS="$TAGS,vitodeploy/vito:latest"
+            fi
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+  docker-build-amd64:
+    runs-on: ubuntu-24.04
+    needs: docker-tags
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push amd64 images
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ needs.docker-tags.outputs.tags }}"
+          TAGS=""
+          for TAG in "${TAG_ARRAY[@]}"; do
+            TAGS="$TAGS --tag ${TAG}"
+          done
+
+          docker buildx build . \
+            -f docker/Dockerfile \
+            --platform linux/amd64 \
+            --push \
+            $TAGS
+
+  docker-build-arm64:
+    runs-on: ubuntu-24.04-arm
+    needs: docker-tags
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push arm64 images
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ needs.docker-tags.outputs.tags }}"
+          TAGS=""
+          for TAG in "${TAG_ARRAY[@]}"; do
+            TAGS="$TAGS --tag ${TAG}-arm64"
+          done
+
+          docker buildx build . \
+            -f docker/Dockerfile \
+            --platform linux/arm64 \
+            --push \
+            $TAGS

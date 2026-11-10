@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.1/phpunit.xsd" bootstrap="vendor/autoload.php" colors="true">
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/13.0/phpunit.xsd" bootstrap="vendor/autoload.php" colors="true">
   <testsuites>
     <testsuite name="Feature">
       <directory suffix="Test.php">./tests/Feature</directory>
     </testsuite>
     <testsuite name="Unit">
       <directory suffix="Test.php">./tests/Unit</directory>
+    </testsuite>
+    <testsuite name="Arch">
+      <directory suffix="Test.php">./tests/Arch</directory>
     </testsuite>
   </testsuites>
   <coverage/>
@@ -18,6 +21,7 @@
     <env name="MAIL_MAILER" value="array"/>
     <env name="QUEUE_CONNECTION" value="sync"/>
     <env name="SESSION_DRIVER" value="array"/>
+    <ini name="memory_limit" value="2G" />
   </php>
   <source>
     <include>

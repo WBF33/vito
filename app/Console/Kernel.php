@@ -12,13 +12,19 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command('backups:run "0 * * * *"')->hourly();
-        $schedule->command('backups:run "0 0 * * *"')->daily();
-        $schedule->command('backups:run "0 0 * * 0"')->weekly();
-        $schedule->command('backups:run "0 0 1 * *"')->monthly();
+        $schedule->command('backups:run')->everyMinute();
+        $schedule->command('backups:reconcile')->everyThirtyMinutes();
         $schedule->command('metrics:delete-older-metrics')->daily();
-        $schedule->command('metrics:get')->everyMinute();
+        $schedule->command('db:vacuum')->daily();
+        $schedule->command('metrics:get')->everyMinute()->withoutOverlapping(5);
         $schedule->command('servers:check')->everyFiveMinutes();
+        $schedule->command('servers:check-updates')->dailyAt('02:00');
+        $schedule->command('servers:auto-update')->everyMinute()->withoutOverlapping();
+        $schedule->command('domains:check-pending')->everyFiveMinutes();
+        $schedule->command('networks:reconcile')->everyThreeMinutes()->withoutOverlapping(10);
+        $schedule->command('ssl:renew-wildcards')->daily();
+        $schedule->command('ssl:check-expiry')->daily();
+        $schedule->command('github-app:sync')->cron('0 */4 * * *');
     }
 
     /**

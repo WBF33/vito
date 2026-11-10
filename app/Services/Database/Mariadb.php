@@ -2,8 +2,15 @@
 
 namespace App\Services\Database;
 
-class Mariadb extends AbstractDatabase
+use App\DTOs\ServiceLog;
+use App\Services\HasLogs;
+use App\Services\SupportsNetworking;
+use Illuminate\Contracts\View\View;
+
+class Mariadb extends AbstractDatabase implements HasLogs, SupportsNetworking
 {
+    use ManagesMysqlNetworking;
+
     protected array $systemDbs = ['information_schema', 'performance_schema', 'mysql', 'sys'];
 
     protected array $systemUsers = [
@@ -29,12 +36,33 @@ class Mariadb extends AbstractDatabase
         return 'mariadb';
     }
 
-    public function version(): string
+    protected function installScript(): View
     {
-        $version = $this->service->server->ssh()->exec(
-            'mariadb --version | grep -oE \'[0-9]+\.[0-9]+\.[0-9]+\' | head -n 1'
-        );
+        return view($this->getScriptView('install'), [
+            'version' => $this->service->version,
+        ]);
+    }
 
-        return trim($version);
+    public function versionCommand(): ?string
+    {
+        return 'mariadb --version | grep -oE \'[0-9]+\.[0-9]+\.[0-9]+\' | head -n 1';
+    }
+
+    protected function networkingManagesXPlugin(): bool
+    {
+        return false;
+    }
+
+    public function logs(): array
+    {
+        return [
+            new ServiceLog(
+                key: 'mariadb:journal',
+                serviceLabel: 'MariaDB',
+                label: 'Service journal',
+                source: ServiceLog::SOURCE_JOURNAL,
+                target: 'mariadb.service',
+            ),
+        ];
     }
 }

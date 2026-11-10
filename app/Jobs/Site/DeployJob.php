@@ -1,0 +1,167 @@
+<?php
+
+namespace App\Jobs\Site;
+
+use App\Actions\Site\BroadcastSiteUpdate;
+use App\Actions\Worker\RestartSiteWorkers;
+use App\DTOs\SocketEventDTO;
+use App\Enums\DeploymentStatus;
+use App\Events\SocketEvent;
+use App\Facades\Notifier;
+use App\Http\Resources\DeploymentResource;
+use App\Models\Deployment;
+use App\Models\ServerLog;
+use App\Notifications\DeploymentCompleted;
+use App\SSH\OS\Git;
+use App\Traits\UniqueQueue;
+use Exception;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+
+class DeployJob implements ShouldQueue
+{
+    use Queueable;
+    use UniqueQueue;
+
+    public function __construct(
+        protected Deployment $deployment,
+        protected bool $isModern = true
+    ) {
+        $this->onQueue('ssh');
+    }
+
+    public function handle(): void
+    {
+        $site = $this->deployment->site;
+        $log = ServerLog::find($this->deployment->log_id);
+
+        $this->run("site-{$site->id}", function () use ($site, $log) {
+            if ($this->isModern) {
+                $this->handleModernDeployment($site, $log);
+            } else {
+                $this->handleClassicDeployment($site, $log);
+            }
+
+            $site->type()->afterDeploy($this->deployment);
+
+            $this->deployment->status = DeploymentStatus::FINISHED;
+            $this->deployment->save();
+            $this->deployment->activate();
+            $this->broadcastDeploymentUpdate();
+            app(BroadcastSiteUpdate::class)->broadcast($site);
+            Notifier::send($site, new DeploymentCompleted($this->deployment, $site));
+        });
+    }
+
+    public function failed(Exception $e): void
+    {
+        $site = $this->deployment->site;
+        $current = $site->deployments()->where('active', 1)->whereNotNull('release')->first();
+
+        $this->deployment->status = DeploymentStatus::FAILED;
+        $this->deployment->save();
+        $this->deployment->activate();
+        $this->deployment->log?->write("Deployment failed: {$e->getMessage()}");
+        $this->broadcastDeploymentUpdate();
+        Notifier::send($site, new DeploymentCompleted($this->deployment, $site));
+
+        if ($this->isModern && $current) {
+            $this->deployment->site->server->ssh($site->user)->exec(
+                view('ssh.modern-deployment.release', [
+                    'site' => $site,
+                    'releasePath' => $current->path(),
+                ]),
+                'release',
+                $site->id
+            );
+            $current->activate();
+        }
+    }
+
+    private function broadcastDeploymentUpdate(): void
+    {
+        $this->deployment->refresh();
+
+        SocketEvent::dispatch(new SocketEventDTO(
+            projectId: $this->deployment->site->server->project_id,
+            type: 'deployment.updated',
+            data: new DeploymentResource($this->deployment),
+        ));
+    }
+
+    private function handleClassicDeployment($site, $log): void
+    {
+        $site->server->os()->runScript(
+            path: $site->path,
+            script: $site->deploymentScript->content,
+            serverLog: $log,
+            user: $site->user,
+            variables: array_merge(
+                $site->environmentVariables($this->deployment),
+                $site->type()->deploymentEnvironment(),
+            ),
+            aliases: $site->environmentAliases(),
+        );
+
+        if ($site->deploymentScriptFor(false)?->shouldRestartWorkers()) {
+            app(RestartSiteWorkers::class)->restart($site, $log);
+        }
+    }
+
+    private function handleModernDeployment($site, $log): void
+    {
+        app(Git::class)->clone($site, $this->deployment->path());
+
+        // build
+        $site->server->os()->runScript(
+            path: $this->deployment->path(),
+            script: $site->buildScript->content ?? '',
+            serverLog: $log,
+            user: $site->user,
+            variables: array_merge(
+                $site->environmentVariables($this->deployment),
+                $site->type()->deploymentEnvironment(),
+            ),
+            aliases: $site->environmentAliases(),
+        );
+
+        // link resources
+        $site->server->ssh($site->user)
+            ->variables($site->environmentVariables($this->deployment))
+            ->exec(
+                view('ssh.modern-deployment.link-resources', [
+                    'site' => $site,
+                    'releasePath' => $this->deployment->path(),
+                ]),
+                'link-resources',
+                $site->id
+            );
+
+        // pre-flight
+        $site->server->os()->runScript(
+            path: $this->deployment->path(),
+            script: $site->preFlightScript->content ?? '',
+            serverLog: $log,
+            user: $site->user,
+            variables: array_merge(
+                $site->environmentVariables($this->deployment),
+                $site->type()->deploymentEnvironment(),
+            ),
+            aliases: $site->environmentAliases(),
+        );
+
+        // release
+        $site->server->ssh($site->user)->exec(
+            view('ssh.modern-deployment.release', [
+                'site' => $site,
+                'releasePath' => $this->deployment->path(),
+            ]),
+            'release',
+            $site->id
+        );
+
+        if ($site->deploymentScriptFor(true)?->shouldRestartWorkers()) {
+            app(RestartSiteWorkers::class)->restart($site, $log);
+        }
+    }
+}

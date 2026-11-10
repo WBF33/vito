@@ -2,13 +2,17 @@
 
 namespace App\Actions\Site;
 
+use App\Events\SiteDeletedEvent;
 use App\Exceptions\SSHError;
 use App\Models\Service;
 use App\Models\Site;
 use App\Services\PHP\PHP;
-use App\Services\Webserver\Webserver;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class DeleteSite
 {
@@ -21,15 +25,35 @@ class DeleteSite
     {
         $this->validate($site, $input);
 
-        /** @var Service $service */
-        $service = $site->server->webserver();
+        if ($site->sourceControl && isset($site->type_data['deploy_key_id'])) {
+            $site->sourceControl->provider()->deleteDeployKey(
+                $site->type_data['deploy_key_id'],
+                $site->repository,
+            );
+        }
 
-        /** @var Webserver $webserverHandler */
-        $webserverHandler = $service->handler();
-        $webserverHandler->deleteSite($site);
+        if (! $site->isIsolated()) {
+            $site->webserver()->deleteSite($site);
+            $this->deleteRow($site);
 
-        if ($site->isIsolated()) {
-            if ($site->type()->language() === 'php') {
+            return;
+        }
+
+        $iuser = $site->isolatedUser;
+        $lock = $iuser?->lock() ?? $site->server->isolatedUserLock($site->user);
+
+        try {
+            $lock->block(30);
+        } catch (LockTimeoutException) {
+            throw ValidationException::withMessages([
+                'domain' => "Another operation on isolated user '{$site->user}' is in progress, please retry.",
+            ]);
+        }
+
+        try {
+            $site->webserver()->deleteSite($site);
+
+            if ($site->type()->language() === 'php' && ! $site->fpmPoolSharedWithSiblings()) {
                 /** @var Service $phpService */
                 $phpService = $site->server->php();
                 /** @var PHP $php */
@@ -37,11 +61,47 @@ class DeleteSite
                 $php->removeFpmPool($site->user, $site->php_version, $site->id);
             }
 
-            $os = $site->server->os();
-            $os->deleteIsolatedUser($site->user);
+            $isLastSibling = ! $site->userSharedWithSiblings();
+
+            if ($isLastSibling) {
+                $site->server->os()->deleteIsolatedUser($site->user);
+            }
+
+            $this->deleteRow($site);
+
+            if ($isLastSibling) {
+                $iuser?->delete();
+            }
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Delete the site row. If the row deletion fails after server-side teardown has
+     * already run, the server-side artefacts (pool, user) are already gone — log the
+     * orphan-row state so an operator can clean up, then rethrow.
+     */
+    private function deleteRow(Site $site): void
+    {
+        $server = $site->server;
+        $siteId = $site->id;
+        $domain = $site->domain;
+
+        try {
+            $site->delete();
+        } catch (Throwable $e) {
+            Log::error('Site row deletion failed after isolated teardown', [
+                'site_id' => $site->id,
+                'server_id' => $site->server_id,
+                'user' => $site->user,
+                'exception' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
 
-        $site->delete();
+        SiteDeletedEvent::dispatch($server, $siteId, $domain);
     }
 
     /**

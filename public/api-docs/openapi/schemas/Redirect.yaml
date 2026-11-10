@@ -1,0 +1,39 @@
+type: object
+properties:
+  id:
+    type: integer
+    example: 1
+  server_id:
+    type: integer
+    example: 1
+  site_id:
+    type: integer
+    example: 1
+  from:
+    type: string
+    example: 'example.com'
+  to:
+    type: string
+    example: 'www.example.com'
+  mode:
+    type: integer
+    enum: [301, 302, 307, 308, 1000]
+    example: 301
+  websocket:
+    type: boolean
+    description: 'Enable WebSocket upgrade support (only applies when mode is 1000 / proxy)'
+    example: false
+  status:
+    type: string
+    enum: ['creating', 'ready', 'deleting', 'failed']
+    example: 'ready'
+  status_color:
+    type: string
+    enum: ['success', 'warning', 'danger']
+    example: 'success'
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time

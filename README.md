@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://github.com/user-attachments/assets/b06531f3-2066-436e-a0e3-0a5f1b7d5118" alt="VitoDeploy>
+    <img alt="VitoDeploy" src="https://github.com/user-attachments/assets/f477ab88-8e1c-474e-8238-bf5892b2840f">
     <p align="center">
         <a href="https://github.com/vitodeploy/vito/actions"><img alt="GitHub Workflow Status" src="https://github.com/vitodeploy/vito/workflows/tests/badge.svg"></a>
     </p>
@@ -15,7 +15,7 @@ production servers without a hassle.
 ## Quick Start
 
 ```sh
-bash <(curl -Ls https://raw.githubusercontent.com/vitodeploy/vito/3.x/scripts/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/vitodeploy/vito/4.x/scripts/install.sh)
 ```
 
 ## Features
@@ -32,11 +32,12 @@ bash <(curl -Ls https://raw.githubusercontent.com/vitodeploy/vito/3.x/scripts/in
 - API
 - Plugins
 - Export and Import
+- Workflows and Automations
+- Domains and DNS Management
 
 ## Useful Links
 
 - [Documentation](https://vitodeploy.com)
-- [Demo Website](https://demo.vitodeploy.com)
 - [Install on Server](https://vitodeploy.com/getting-started/installation.html#install-on-vps)
 - [Install via Docker](https://vitodeploy.com/getting-started/installation.html#install-via-docker)
 - [Roadmap](https://github.com/orgs/vitodeploy/projects/5)
@@ -51,10 +52,15 @@ bash <(curl -Ls https://raw.githubusercontent.com/vitodeploy/vito/3.x/scripts/in
 - ReactJS
 - Shadcn UI
 - PHPSecLib
-- PHPUnit
+- Pest
 - Tailwindcss
 - Vite
 - Prettier
 - Spatie
 - Opcodesio log viewer
 - Tightenco
+- InertiaTables (Forjedio)
+
+## Powered by
+
+[![JetBrains logo.](https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg)](https://jb.gg/OpenSource)

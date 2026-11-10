@@ -1,37 +1,31 @@
 import { Site, SiteFeatureAction } from '@/types/site';
-import { FormEvent, ReactNode, useState } from 'react';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { FormEvent } from 'react';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormFields } from '@/components/ui/form';
 import { Button } from '@/components/ui/button';
 import { useForm } from '@inertiajs/react';
 import { DynamicFieldConfig } from '@/types/dynamic-field-config';
 import DynamicField from '@/components/ui/dynamic-field';
+
+type FieldValue = string | number | boolean | string[] | null | undefined;
 import { LoaderCircleIcon } from 'lucide-react';
 
 export default function FeatureAction({
+  open,
+  onOpenChange,
   site,
   featureId,
   actionId,
   action,
-  children,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   site: Site;
   featureId: string;
   actionId: string;
   action: SiteFeatureAction;
-  children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const form = useForm();
+  const form = useForm<Record<string, FieldValue>>({});
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -43,18 +37,14 @@ export default function FeatureAction({
         action: actionId,
       }),
       {
-        onSuccess: () => {
-          setOpen(false);
-          form.reset();
-        },
+        onSuccess: () => onOpenChange(false),
       },
     );
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{action.label}</DialogTitle>
           <DialogDescription className="sr-only">action {action.label}</DialogDescription>
@@ -64,11 +54,10 @@ export default function FeatureAction({
             {action.form?.map((field: DynamicFieldConfig) => (
               <DynamicField
                 key={`field-${field.name}`}
-                /*@ts-expect-error dynamic types*/
-                value={form.data[field.name]}
-                onChange={(value) => form.setData(field.name, value)}
+                value={form.data[field.name] as string | number | boolean | string[] | undefined}
+                onChange={(value) => form.setData(field.name, value as FieldValue)}
                 config={field}
-                error={form.errors[field.name]}
+                error={form.errors[field.name] as string | undefined}
               />
             ))}
           </FormFields>

@@ -1,72 +1,19 @@
 import { ColumnDef } from '@tanstack/react-table';
-import { Button } from '@/components/ui/button';
-import { LoaderCircleIcon, MoreVerticalIcon } from 'lucide-react';
+import { MoreVerticalIcon } from 'lucide-react';
 import type { ServerLog } from '@/types/server-log';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { ReactNode, useState } from 'react';
-import axios from 'axios';
+import { ReactNode } from 'react';
 import DateTime from '@/components/date-time';
-import LogOutput from '@/components/log-output';
-import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { useForm } from '@inertiajs/react';
-import FormSuccessful from '@/components/form-successful';
+import { useDialog } from '@/hooks/use-dialog';
 
-export function View({ serverLog, children }: { serverLog: ServerLog; children?: ReactNode }) {
-  const [open, setOpen] = useState(false);
-
-  const query = useQuery({
-    queryKey: ['server-log', serverLog.id],
-    queryFn: async () => {
-      try {
-        const response = await axios.get(route('logs.show', { server: serverLog.server_id, log: serverLog.id }));
-        return response.data;
-      } catch (error: unknown) {
-        if (axios.isAxiosError(error)) {
-          throw new Error(error.response?.data?.error || 'An error occurred while fetching the log');
-        }
-        throw new Error('Unknown error occurred');
-      }
-    },
-    enabled: open,
-    retry: false,
-    refetchInterval: (query) => {
-      if (query.state.status === 'error') return false;
-      return 2500;
-    },
-  });
+export function View({ serverLog, label = 'View' }: { serverLog: ServerLog; label?: string }) {
+  const dialog = useDialog();
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children ? children : <DropdownMenuItem onSelect={(e) => e.preventDefault()}>View</DropdownMenuItem>}</DialogTrigger>
-      <DialogContent className="sm:max-w-5xl">
-        <DialogHeader>
-          <DialogTitle>View Log</DialogTitle>
-          <DialogDescription className="sr-only">This is all content of the log</DialogDescription>
-        </DialogHeader>
-        <LogOutput>
-          <>
-            {query.isLoading && 'Loading...'}
-            {query.isError && <div className="text-red-500">Error: {query.error.message}</div>}
-            {query.data && !query.isError && query.data}
-          </>
-        </LogOutput>
-        <DialogFooter>
-          <Download serverLog={serverLog}>
-            <Button variant="outline">Download</Button>
-          </Download>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DropdownMenuItem onSelect={() => dialog.logViewer.open({ serverId: serverLog.server_id, logId: serverLog.id, title: label })}>
+      {label}
+    </DropdownMenuItem>
   );
 }
 
@@ -78,46 +25,45 @@ export function Download({ serverLog, children }: { serverLog: ServerLog; childr
   );
 }
 
-function Delete({ serverLog }: { serverLog: ServerLog }) {
-  const [open, setOpen] = useState(false);
-  const form = useForm();
+function Clear({ serverLog }: { serverLog: ServerLog }) {
+  const dialog = useDialog();
 
-  const submit = () => {
-    form.delete(route('logs.destroy', { server: serverLog.server_id, log: serverLog.id }), {
-      onSuccess: () => {
-        setOpen(false);
-      },
-    });
-  };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <DropdownMenuItem variant="destructive" onSelect={(e) => e.preventDefault()}>
-          Delete
-        </DropdownMenuItem>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete {serverLog.name}</DialogTitle>
-          <DialogDescription className="sr-only">Delete log</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2 p-4">
-          <p>
-            Are you sure you want to delete <strong>{serverLog.name}</strong>?
-          </p>
-        </div>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button variant="destructive" disabled={form.processing} onClick={submit}>
-            {form.processing && <LoaderCircleIcon className="animate-spin" />}
-            <FormSuccessful successful={form.recentlySuccessful} />
-            Delete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DropdownMenuItem
+      onSelect={() =>
+        dialog.confirm.open({
+          title: `Clear ${serverLog.name}`,
+          description: `Are you sure you want to clear the contents of ${serverLog.name}? This will remove all content from the log file but keep the file itself.`,
+          confirmLabel: 'Clear',
+          method: 'post',
+          url: route('logs.clear', { server: serverLog.server_id, log: serverLog.id }),
+        })
+      }
+    >
+      Clear
+    </DropdownMenuItem>
+  );
+}
+
+function Delete({ serverLog }: { serverLog: ServerLog }) {
+  const dialog = useDialog();
+
+  return (
+    <DropdownMenuItem
+      variant="destructive"
+      onSelect={() =>
+        dialog.confirm.open({
+          title: `Delete ${serverLog.name}`,
+          description: `Are you sure you want to delete ${serverLog.name}?`,
+          variant: 'destructive',
+          confirmLabel: 'Delete',
+          method: 'delete',
+          url: route('logs.destroy', { server: serverLog.server_id, log: serverLog.id }),
+        })
+      }
+    >
+      Delete
+    </DropdownMenuItem>
   );
 }
 
@@ -155,6 +101,7 @@ export const columns: ColumnDef<ServerLog>[] = [
                 <DropdownMenuItem>Download</DropdownMenuItem>
               </Download>
               <DropdownMenuSeparator />
+              {row.original.is_remote && <Clear serverLog={row.original} />}
               <Delete serverLog={row.original} />
             </DropdownMenuContent>
           </DropdownMenu>

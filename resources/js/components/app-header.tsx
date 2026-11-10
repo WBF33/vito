@@ -1,14 +1,16 @@
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { ProjectSwitch } from '@/components/project-switch';
-import { SlashIcon } from 'lucide-react';
+import { HeartIcon, SlashIcon, WifiIcon, WifiOffIcon } from 'lucide-react';
 import { ServerSwitch } from '@/components/server-switch';
 import AppCommand from '@/components/app-command';
 import { SiteSwitch } from '@/components/site-switch';
 import { usePage } from '@inertiajs/react';
 import { SharedData } from '@/types';
-import Refresh from '@/components/refresh';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { type SocketStatus } from '@/hooks/use-socket-events';
 
-export function AppHeader() {
+export function AppHeader({ socketStatus, socketReconnect }: { socketStatus: SocketStatus; socketReconnect: () => void }) {
   const page = usePage<SharedData>();
 
   return (
@@ -28,8 +30,40 @@ export function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {socketStatus !== 'connected' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-8"
+                onClick={socketReconnect}
+                disabled={socketStatus === 'connecting'}
+                aria-label={socketStatus === 'connecting' ? 'Connecting to WebSocket' : 'WebSocket disconnected, click to reconnect'}
+              >
+                {socketStatus === 'connecting' ? <WifiIcon className="size-4 animate-pulse" /> : <WifiOffIcon className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {socketStatus === 'connecting' ? 'Connecting to WebSocket...' : 'WebSocket connection failed. Click to retry.'}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={() => window.open('https://github.com/sponsors/saeedvaziry')}
+              aria-label="Sponsor"
+            >
+              <HeartIcon className="text-pink-600" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Sponsor</TooltipContent>
+        </Tooltip>
         <AppCommand />
-        <Refresh />
       </div>
     </header>
   );

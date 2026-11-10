@@ -2,6 +2,7 @@
 
 namespace App\Support\Testing;
 
+use App\Exceptions\SSHCommandError;
 use App\Exceptions\SSHConnectionError;
 use App\Helpers\SSH;
 use App\Models\Server;
@@ -19,11 +20,13 @@ class SSHFake extends SSH
 
     protected bool $connectionWillFail = false;
 
+    protected bool $execWillFail = false;
+
     protected string $uploadedLocalPath;
 
     protected string $uploadedRemotePath;
 
-    protected string $uploadedContent;
+    protected string $uploadedContent = '';
 
     public function __construct(protected ?string $output = null) {}
 
@@ -46,6 +49,11 @@ class SSHFake extends SSH
         $this->connectionWillFail = true;
     }
 
+    public function execWillFail(): void
+    {
+        $this->execWillFail = true;
+    }
+
     public function connect(bool $sftp = false): void
     {
         if ($this->connectionWillFail) {
@@ -53,23 +61,25 @@ class SSHFake extends SSH
         }
     }
 
-    public function exec(string|View $command, string $log = '', ?int $siteId = null, ?bool $stream = false, ?callable $streamCallback = null): string
+    public function exec(string|View $command, string $log = '', ?int $siteId = null, ?bool $stream = false, ?callable $streamCallback = null, int $timeout = 0): string
     {
         if (! $this->log instanceof ServerLog && $log) {
-            /** @var ServerLog $log */
-            $log = $this->server->logs()->create([
-                'site_id' => $siteId,
-                'name' => $this->server->id.'-'.strtotime('now').'-'.$log.'.log',
-                'type' => $log,
-                'disk' => config('core.logs_disk'),
-            ]);
-            $this->log = $log;
+            $serverLog = ServerLog::newLog($this->server, $log);
+            if ($siteId !== null && $siteId !== 0) {
+                $serverLog->forSite($siteId);
+            }
+            $serverLog->save();
+            $this->log = $serverLog;
         }
 
         $this->commands[] = $command;
 
+        if ($this->execWillFail) {
+            throw new SSHCommandError(message: 'SSH command failed with an error', log: $this->log);
+        }
+
         $output = $this->output ?? 'fake output';
-        $this->log?->write($output);
+        $this->writeOutput($output);
 
         if ($stream === true) {
             echo $output;
@@ -82,13 +92,14 @@ class SSHFake extends SSH
         return $output;
     }
 
-    public function upload(string $local, string $remote, ?string $owner = null): void
+    public function upload(string $local, string $remote, ?string $owner = null, ?string $log = null, ?int $siteId = null, string $permission = '644'): void
     {
         $this->uploadedLocalPath = $local;
         $this->uploadedRemotePath = $remote;
         $this->uploadedContent = file_get_contents($local) ?: '';
-        $this->log = null;
     }
+
+    public function download(string $local, string $remote, ?string $log = null, ?int $siteId = null): void {}
 
     /**
      * @param  array<string>|string  $commands
@@ -120,12 +131,27 @@ class SSHFake extends SSH
         $executed = false;
         foreach ($this->commands as $executedCommand) {
             if (str($executedCommand)->contains($command)) {
-                return;
+                $executed = true;
+                break;
             }
         }
 
-        Assert::fail(
+        Assert::assertTrue(
+            $executed,
             'The expected command is not executed in the executed commands: '.implode(', ', $this->commands)
+        );
+    }
+
+    public function assertNotExecutedContains(string $command, string $message = ''): void
+    {
+        $matches = array_filter(
+            $this->commands,
+            fn (string|View $executedCommand): bool => str((string) $executedCommand)->contains($command)
+        );
+
+        Assert::assertEmpty(
+            $matches,
+            $message ?: "The command '{$command}' should not be executed, but it was found in: ".implode(', ', $matches)
         );
     }
 
@@ -142,8 +168,21 @@ class SSHFake extends SSH
         }
     }
 
+    /**
+     * @return array<int, string>
+     */
+    public function getExecutedCommands(): array
+    {
+        return array_map(fn (string|View $command): string => (string) $command, $this->commands);
+    }
+
     public function getUploadedLocalPath(): string
     {
         return $this->uploadedLocalPath;
+    }
+
+    public function getUploadedContent(): string
+    {
+        return $this->uploadedContent;
     }
 }

@@ -2,6 +2,11 @@
 
 namespace App\Models;
 
+use App\DTOs\SocketEventDTO;
+use App\Events\SocketEvent;
+use App\Http\Resources\ServerLogResource;
+use App\SSH\OS\OS;
+use Closure;
 use Database\Factories\ServerLogFactory;
 use Exception;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,21 +22,26 @@ use Throwable;
 /**
  * @property int $server_id
  * @property ?int $site_id
+ * @property ?int $network_id
  * @property string $type
  * @property string $name
  * @property string $disk
  * @property bool $is_remote
  * @property Server $server
  * @property ?Site $site
+ * @property ?Network $network
  */
 class ServerLog extends AbstractModel
 {
     /** @use HasFactory<ServerLogFactory> */
     use HasFactory;
 
+    private static ?int $networkContext = null;
+
     protected $fillable = [
         'server_id',
         'site_id',
+        'network_id',
         'type',
         'name',
         'disk',
@@ -41,12 +51,47 @@ class ServerLog extends AbstractModel
     protected $casts = [
         'server_id' => 'integer',
         'site_id' => 'integer',
+        'network_id' => 'integer',
         'is_remote' => 'boolean',
     ];
+
+    /**
+     * Associate every ServerLog created inside $callback with $networkId. Lets
+     * logs produced deep in the SSH/Service layers during a network sync be
+     * tagged without threading the network through every call site.
+     *
+     * @template TReturn
+     *
+     * @param  Closure(): TReturn  $callback
+     * @return TReturn
+     */
+    public static function withNetwork(?int $networkId, Closure $callback): mixed
+    {
+        $previous = self::$networkContext;
+        self::$networkContext = $networkId;
+
+        try {
+            return $callback();
+        } finally {
+            self::$networkContext = $previous;
+        }
+    }
 
     public static function boot(): void
     {
         parent::boot();
+
+        self::created(function (ServerLog $log): void {
+            try {
+                SocketEvent::dispatch(new SocketEventDTO(
+                    projectId: $log->server->project_id,
+                    type: 'server-log.created',
+                    data: new ServerLogResource($log),
+                ));
+            } catch (Exception $e) {
+                Log::error($e->getMessage(), ['exception' => $e]);
+            }
+        });
 
         self::deleting(function (ServerLog $log): void {
             if ($log->is_remote) {
@@ -80,6 +125,14 @@ class ServerLog extends AbstractModel
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class);
+    }
+
+    /**
+     * @return BelongsTo<Network, $this>
+     */
+    public function network(): BelongsTo
+    {
+        return $this->belongsTo(Network::class);
     }
 
     /**
@@ -136,12 +189,27 @@ class ServerLog extends AbstractModel
         } else {
             Storage::disk($this->disk)->put($this->name, $buf);
         }
+
+        try {
+            SocketEvent::dispatch(new SocketEventDTO(
+                projectId: $this->server->project_id,
+                type: 'server-log.content',
+                data: [
+                    'id' => $this->id,
+                    'content' => $buf,
+                ],
+            ));
+        } catch (Exception $e) {
+            Log::error($e->getMessage(), ['exception' => $e]);
+        }
     }
 
     public function getContent(?int $lines = null): ?string
     {
         if ($this->is_remote) {
-            return $this->server->os()->tail($this->name, $lines ?? 150);
+            $content = $this->server->os()->tail($this->name, $lines ?? 150);
+
+            return trim($content) === OS::FILE_NOT_FOUND ? "Log file doesn't exist or is empty!" : $content;
         }
 
         if (Storage::disk($this->disk)->exists($this->name)) {
@@ -162,6 +230,7 @@ class ServerLog extends AbstractModel
         $log = new self([
             'server_id' => $server->id,
             'site_id' => $site?->id,
+            'network_id' => self::$networkContext,
             'name' => $server->id.'-'.strtotime('now').'-'.$type.'.log',
             'type' => $type,
             'disk' => config('core.logs_disk'),
@@ -176,6 +245,7 @@ class ServerLog extends AbstractModel
     {
         return new self([
             'server_id' => $server->id,
+            'network_id' => self::$networkContext,
             'name' => $server->id.'-'.strtotime('now').'-'.$type.'.log',
             'type' => $type,
             'disk' => config('core.logs_disk'),
@@ -193,5 +263,18 @@ class ServerLog extends AbstractModel
         $this->site_id = $site;
 
         return $this;
+    }
+
+    /**
+     * Clear the contents of a remote log file
+     *
+     * @throws Throwable
+     */
+    public function clear(): void
+    {
+        if ($this->is_remote) {
+            // For remote logs, use the dedicated script that preserves permissions and ownership
+            $this->server->os()->clearFile($this->name);
+        }
     }
 }

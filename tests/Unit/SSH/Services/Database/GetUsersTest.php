@@ -1,41 +1,35 @@
 <?php
 
-namespace Tests\Unit\SSH\Services\Database;
-
 use App\Facades\SSH;
 use App\Services\Database\Database;
-use PHPUnit\Framework\Attributes\DataProvider;
-use Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-class GetUsersTest extends TestCase
-{
-    #[DataProvider('data')]
-    public function test_get_users(string $name, string $version, string $output): void
-    {
-        $database = $this->server->database();
-        $database->name = $name;
-        $database->version = $version;
-        $database->save();
+uses(RefreshDatabase::class);
 
-        SSH::fake($output);
+test('get users', function (string $name, string $version, string $output) {
+    $database = $this->server->database();
+    $database->name = $name;
+    $database->version = $version;
+    $database->save();
 
-        /** @var Database $databaseHandler */
-        $databaseHandler = $database->handler();
-        $users = $databaseHandler->getUsers();
+    SSH::fake($output);
 
-        $this->assertEquals('vito', $users[0][0]);
-    }
+    /** @var Database $databaseHandler */
+    $databaseHandler = $database->handler();
+    $users = $databaseHandler->getUsers();
 
-    /**
-     * @return array<int, array<int, mixed>>
-     */
-    public static function data(): array
-    {
-        return [
-            [
-                'mysql',
-                '8.0',
-                <<<'EOD'
+    expect($users[0][0])->toEqual('vito');
+})->with('data');
+
+/**
+ * @return array<int, array<int, mixed>>
+ */
+dataset('data', function () {
+    return [
+        [
+            'mysql',
+            '8.0',
+            <<<'EOD'
                 User	Host	Privileges
                 vito	localhost	mydb,testdb
                 mysql.infoschema	localhost	NULL
@@ -43,11 +37,11 @@ class GetUsersTest extends TestCase
                 mysql.sys	localhost	sys
                 root	localhost	NULL
                 EOD
-            ],
-            [
-                'mysql',
-                '5.7',
-                <<<'EOD'
+        ],
+        [
+            'mysql',
+            '5.7',
+            <<<'EOD'
                 User	Host	Privileges
                 vito	localhost	mydb,testdb
                 mysql.infoschema	localhost	NULL
@@ -55,29 +49,28 @@ class GetUsersTest extends TestCase
                 mysql.sys	localhost	sys
                 root	localhost	NULL
                 EOD
-            ],
-            [
-                'mariadb',
-                '11.4',
-                <<<'EOD'
+        ],
+        [
+            'mariadb',
+            '11.4',
+            <<<'EOD'
                 User	Host	Privileges
                 mariadb.sys	localhost	NULL
                 mysql	localhost	NULL
                 root	localhost	NULL
                 vito	localhost	NULL
                 EOD
-            ],
-            [
-                'postgresql',
-                '16',
-                <<<'EOD'
+        ],
+        [
+            'postgresql',
+            '16',
+            <<<'EOD'
                  username | host |                databases
                 ----------+------+------------------------------------------
                  postgres |      | template1,template0,postgres,test,vitodb
                  vito     |      | template1,template0,postgres,test,vitodb
                 (2 rows)
                 EOD
-            ],
-        ];
-    }
-}
+        ],
+    ];
+});

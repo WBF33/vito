@@ -2,6 +2,7 @@
 
 namespace App\Actions\Server;
 
+use App\Actions\Network\ResyncServerEndpoint;
 use App\Models\Server;
 use App\ValidationRules\RestrictedIPAddressesRule;
 use Illuminate\Support\Facades\Validator;
@@ -10,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class EditServer
 {
+    public function __construct(private ResyncServerEndpoint $resync) {}
+
     /**
      * @param  array<string, mixed>  $input
      * @return Server $server
@@ -18,15 +21,17 @@ class EditServer
      */
     public function edit(Server $server, array $input): Server
     {
-        Validator::make($input, self::rules($server))->validate();
+        $this->validate($server, $input);
 
         $checkConnection = false;
+        $ipChanged = false;
         if (isset($input['name'])) {
             $server->name = $input['name'];
         }
         if (isset($input['ip'])) {
             if ($server->ip !== $input['ip']) {
                 $checkConnection = true;
+                $ipChanged = true;
             }
             $server->ip = $input['ip'];
         }
@@ -41,6 +46,10 @@ class EditServer
         }
         $server->save();
 
+        if ($ipChanged) {
+            $this->resync->handle($server);
+        }
+
         if ($checkConnection) {
             return $server->checkConnection();
         }
@@ -48,12 +57,9 @@ class EditServer
         return $server;
     }
 
-    /**
-     * @return array<string, array<int, mixed>>
-     */
-    public static function rules(Server $server): array
+    private function validate(Server $server, array $input): void
     {
-        return [
+        $rules = [
             'name' => [
                 'required',
                 'max:255',
@@ -61,12 +67,14 @@ class EditServer
             ],
             'ip' => [
                 'string',
+                'ip',
                 new RestrictedIPAddressesRule,
                 Rule::unique('servers')->where('project_id', $server->project_id)->ignore($server->id),
             ],
             'local_ip' => [
                 'nullable',
                 'string',
+                'ip',
                 Rule::unique('servers')->where('project_id', $server->project_id)->ignore($server->id),
             ],
             'port' => [
@@ -75,5 +83,7 @@ class EditServer
                 'max:65535',
             ],
         ];
+
+        Validator::make($input, $rules)->validate();
     }
 }

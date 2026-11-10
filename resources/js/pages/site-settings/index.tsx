@@ -5,7 +5,9 @@ import HeaderContainer from '@/components/header-container';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import ServerLayout from '@/layouts/server/layout';
-import { BookOpenIcon } from 'lucide-react';
+import SiteBanners from '@/components/site-banners';
+import { BookOpenIcon, TriangleAlertIcon } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import DateTime from '@/components/date-time';
@@ -18,10 +20,15 @@ import CopyableBadge from '@/components/copyable-badge';
 import ChangePHPVersion from '@/pages/site-settings/components/php-version';
 import DeleteSite from '@/pages/site-settings/components/delete-site';
 import VHost from '@/pages/site-settings/components/vhost';
+import VHostPreview from '@/pages/site-settings/components/vhost-preview';
 import ChangeSourceControl from '@/pages/site-settings/components/source-control';
-import Aliases from './components/aliases';
+import BasicAuth from '@/pages/site-settings/components/basic-auth';
+import StatsToggle from '@/pages/site-settings/components/stats-toggle';
+import WebDirectory from './components/web-directory';
+import { useDialog } from '@/hooks/use-dialog';
 
 export default function Databases() {
+  const dialog = useDialog();
   const page = usePage<{
     server: Server;
     site: Site;
@@ -45,14 +52,16 @@ export default function Databases() {
           </div>
         </HeaderContainer>
 
-        <Card>
+        <SiteBanners site={page.props.site} />
+
+        <Card className="overflow-hidden">
           <CardHeader className="flex-row items-center justify-between gap-2">
             <div className="space-y-2">
               <CardTitle>Site details</CardTitle>
               <CardDescription>Update site details</CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="bg-background">
             <div className="flex items-center justify-between p-4">
               <span>ID</span>
               <span className="text-muted-foreground">{page.props.site.id}</span>
@@ -63,15 +72,6 @@ export default function Databases() {
               <a href={page.props.site.url} target="_blank" className="text-muted-foreground hover:underline">
                 {page.props.site.domain}
               </a>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between p-4">
-              <span>Aliases</span>
-              <Aliases site={page.props.site}>
-                <Button variant="outline" className="h-6">
-                  Update Aliases
-                </Button>
-              </Aliases>
             </div>
             <Separator />
             <div className="flex items-center justify-between p-4">
@@ -112,16 +112,67 @@ export default function Databases() {
             <Separator />
             <div className="flex items-center justify-between p-4">
               <span>VHost</span>
-              <VHost site={page.props.site}>
+              <VHostPreview site={page.props.site}>
                 <Button variant="outline" className="h-6">
-                  Edit VHost
+                  View VHost
                 </Button>
-              </VHost>
+              </VHostPreview>
             </div>
             <Separator />
             <div className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-2">
+                <span>VHost Template</span>
+                {page.props.site.has_custom_vhost_template && (
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <TriangleAlertIcon className="text-destructive h-4 w-4" />
+                      </TooltipTrigger>
+                      <TooltipContent>You are using a custom vhost template</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+              <VHost site={page.props.site}>
+                <Button variant="outline" className="h-6">
+                  Edit Template
+                </Button>
+              </VHost>
+            </div>
+            {(page.props.site.webserver === 'nginx' || page.props.site.webserver === 'caddy') && (
+              <>
+                <Separator />
+                <div className="flex items-center justify-between p-4">
+                  <span>Basic Auth</span>
+                  <BasicAuth site={page.props.site}>
+                    <Button variant="outline" className="h-6">
+                      {page.props.site.basic_auth?.enabled ? `Enabled (${page.props.site.basic_auth.users.length})` : 'Disabled'}
+                    </Button>
+                  </BasicAuth>
+                </div>
+              </>
+            )}
+            {page.props.server.services['log_analysis'] && (
+              <>
+                <Separator />
+                <div className="flex items-center justify-between p-4">
+                  <span>Statistics</span>
+                  <StatsToggle site={page.props.site}>
+                    <Button variant="outline" className="h-6">
+                      {page.props.site.stats_enabled ? 'Enabled' : 'Disabled'}
+                    </Button>
+                  </StatsToggle>
+                </div>
+              </>
+            )}
+            <Separator />
+            <div className="flex items-center justify-between p-4">
               <span>Web directory</span>
-              <span className="text-muted-foreground">{page.props.site.web_directory || '-'}</span>
+              <WebDirectory site={page.props.site}>
+                <Button variant="outline" className="h-6">
+                  {page.props.site.web_directory || '/'}
+                </Button>
+              </WebDirectory>
             </div>
             <Separator />
             <div className="flex items-center justify-between p-4">
@@ -132,11 +183,23 @@ export default function Databases() {
             <div className="flex items-center justify-between p-4">
               <span>PHP version</span>
               {page.props.site.php_version ? (
-                <ChangePHPVersion site={page.props.site}>
-                  <Button variant="outline" className="h-6">
-                    {page.props.site.php_version}
-                  </Button>
-                </ChangePHPVersion>
+                <div className="flex items-center gap-2">
+                  <ChangePHPVersion site={page.props.site}>
+                    <Button variant="outline" className="h-6">
+                      {page.props.site.php_version}
+                    </Button>
+                  </ChangePHPVersion>
+                  {page.props.site.supports_php_settings && (
+                    <Button
+                      variant="outline"
+                      className="h-6"
+                      aria-label="Configure PHP settings"
+                      onClick={() => dialog.phpSettings.open({ site: page.props.site })}
+                    >
+                      Configure
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <span className="text-muted-foreground">-</span>
               )}
@@ -156,12 +219,12 @@ export default function Databases() {
           </CardContent>
         </Card>
 
-        <Card className="border-destructive/50">
+        <Card className="border-destructive/50 overflow-hidden">
           <CardHeader>
             <CardTitle>Delete site</CardTitle>
             <CardDescription>Here you can delete the site.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="bg-background">
             <div className="space-y-2 p-4">
               <p>please note that this action is irreversible and will delete all data associated with the site.</p>
 

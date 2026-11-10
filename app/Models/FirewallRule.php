@@ -12,11 +12,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $name
  * @property string $type
  * @property string $protocol
- * @property int $port
+ * @property string $port
  * @property string $source
  * @property ?string $mask
  * @property string $note
- * @property string $status
+ * @property FirewallRuleStatus $status
  * @property Server $server
  */
 class FirewallRule extends AbstractModel
@@ -38,18 +38,7 @@ class FirewallRule extends AbstractModel
 
     protected $casts = [
         'server_id' => 'integer',
-        'port' => 'integer',
-    ];
-
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        FirewallRuleStatus::CREATING => 'info',
-        FirewallRuleStatus::UPDATING => 'warning',
-        FirewallRuleStatus::DELETING => 'danger',
-        FirewallRuleStatus::READY => 'success',
-        FirewallRuleStatus::FAILED => 'danger',
+        'status' => FirewallRuleStatus::class,
     ];
 
     /**

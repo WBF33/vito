@@ -1,5 +1,14 @@
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, LoaderCircleIcon } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  LoaderCircleIcon,
+  ChevronsUpDownIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+} from 'lucide-react';
 import { router } from '@inertiajs/react';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -8,6 +17,26 @@ import { cn } from '@/lib/utils';
 import { PaginatedData } from '@/types';
 import { Input } from './ui/input';
 import { useEffect, useState } from 'react';
+
+function SortIndicator({ sortKey }: { sortKey: string }) {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const current = params.get('sort_by');
+  const dir = params.get('sort_dir') || 'desc';
+
+  if (current !== sortKey) {
+    return <ChevronsUpDownIcon className="text-muted-foreground inline-block h-4 w-4" />;
+  }
+
+  return dir === 'asc' ? (
+    <ChevronUpIcon className="text-muted-foreground inline-block h-4 w-4" />
+  ) : (
+    <ChevronDownIcon className="text-muted-foreground inline-block h-4 w-4" />
+  );
+}
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -19,6 +48,8 @@ interface DataTableProps<TData, TValue> {
   isFetching?: boolean;
   isLoading?: boolean;
   searchable?: boolean;
+  sortable?: boolean;
+  onRowClick?: (row: TData) => void;
 }
 
 export function DataTable<TData, TValue>({
@@ -31,6 +62,8 @@ export function DataTable<TData, TValue>({
   isFetching,
   isLoading,
   searchable,
+  sortable = false,
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
   // Use paginatedData.data if available, otherwise fall back to data prop
   const tableData = paginatedData?.data || data || [];
@@ -42,6 +75,17 @@ export function DataTable<TData, TValue>({
   });
 
   const extraClasses = modal && 'border-none shadow-none';
+
+  // Initialize search query from URL parameters on component mount
+  const [isInitialSearch, setIsInitialSearch] = useState(true);
+  const [searchQuery, setSearchQuery] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('search') || '';
+    }
+    return '';
+  });
+  const [isSearching, setIsSearching] = useState(false);
 
   const handlePageChange = (url: string) => {
     if (onPageChange) {
@@ -56,14 +100,30 @@ export function DataTable<TData, TValue>({
       onPageChange(1);
     } else {
       // Use Inertia router for server-side rendered pages
-      router.get(url, {}, { preserveState: true });
+      const urlObj = new URL(url);
+
+      // Preserve the current search parameter when navigating between pages
+      if (searchQuery) {
+        urlObj.searchParams.set('search', searchQuery);
+      }
+
+      // Preserve the current sort parameters
+      const currentParams = new URLSearchParams(window.location.search);
+      const sortBy = currentParams.get('sort_by');
+      const sortDir = currentParams.get('sort_dir');
+
+      if (sortBy) {
+        urlObj.searchParams.set('sort_by', sortBy);
+      }
+      if (sortDir) {
+        urlObj.searchParams.set('sort_dir', sortDir);
+      }
+
+      router.get(urlObj.toString(), {}, { preserveState: true, preserveScroll: true });
     }
   };
 
-  // handle search
-  const [isInitialSearch, setIsInitialSearch] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
+  // handle search with debouncing
   useEffect(() => {
     const handler = setTimeout(() => {
       if (!isInitialSearch) {
@@ -73,6 +133,7 @@ export function DataTable<TData, TValue>({
 
     return () => clearTimeout(handler);
   }, [searchQuery]);
+
   const handleSearch = () => {
     if (paginatedData) {
       setIsSearching(true);
@@ -80,11 +141,25 @@ export function DataTable<TData, TValue>({
       if (searchQuery.length > 0) {
         url.searchParams.set('search', searchQuery);
       }
+
+      // Preserve the current sort parameters
+      const currentParams = new URLSearchParams(window.location.search);
+      const sortBy = currentParams.get('sort_by');
+      const sortDir = currentParams.get('sort_dir');
+
+      if (sortBy) {
+        url.searchParams.set('sort_by', sortBy);
+      }
+      if (sortDir) {
+        url.searchParams.set('sort_dir', sortDir);
+      }
+
       router.get(
         url.toString(),
         {},
         {
           preserveState: true,
+          preserveScroll: true,
           onSuccess: () => {
             setIsSearching(false);
           },
@@ -101,6 +176,7 @@ export function DataTable<TData, TValue>({
             <Input
               placeholder="Search..."
               className="max-w-sm"
+              value={searchQuery}
               onChange={(e) => {
                 setIsInitialSearch(false);
                 setSearchQuery(e.target.value);
@@ -121,9 +197,41 @@ export function DataTable<TData, TValue>({
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
+                  const canSort = sortable && header.column.getCanSort();
+
+                  // determine unique key to use for sorting: use the column id provided by the table
+                  const sortKey = header.id;
+
                   return (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder ? null : canSort ? (
+                        <button
+                          type="button"
+                          className="flex cursor-pointer items-center gap-2"
+                          onClick={() => {
+                            // Build new URL preserving all existing params
+                            const url = new URL(window.location.href);
+                            const params = url.searchParams;
+
+                            const current = params.get('sort_by');
+                            const currentDir = params.get('sort_dir') || 'desc';
+
+                            if (current !== sortKey) {
+                              params.set('sort_by', sortKey);
+                              params.set('sort_dir', 'asc');
+                            } else {
+                              params.set('sort_dir', currentDir === 'asc' ? 'desc' : 'asc');
+                            }
+
+                            router.get(url.toString(), {}, { preserveState: true, preserveScroll: true });
+                          }}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <SortIndicator sortKey={sortKey} />
+                        </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
                     </TableHead>
                   );
                 })}
@@ -133,7 +241,12 @@ export function DataTable<TData, TValue>({
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && 'selected'}
+                  onClick={() => onRowClick?.(row.original)}
+                  className={onRowClick ? 'hover:bg-muted/50 cursor-pointer' : ''}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                   ))}

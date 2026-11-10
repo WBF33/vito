@@ -3,20 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Server\CreateServer;
+use App\Actions\Server\DeleteServer;
+use App\Actions\Server\GetServers;
 use App\Actions\Server\RebootServer;
 use App\Actions\Server\TransferServer;
 use App\Actions\Server\Update;
+use App\Actions\Server\UpdateKernel;
 use App\Exceptions\SSHError;
-use App\Helpers\QueryBuilder;
 use App\Http\Resources\ServerLogResource;
 use App\Http\Resources\ServerProviderResource;
 use App\Http\Resources\ServerResource;
 use App\Models\Server;
 use App\Models\ServerProvider;
+use App\Tables\ServerTable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
@@ -37,15 +39,10 @@ class ServerController extends Controller
 
         $this->authorize('viewAny', [Server::class, $project]);
 
-        $servers = QueryBuilder::for($project->servers())
-            ->searchableFields(['name', 'ip_address'])
-            ->query()
-            ->simplePaginate(config('web.pagination_size'), pageName: 'serversPage');
-
         return Inertia::render('servers/index', [
-            'servers' => ServerResource::collection($servers),
+            'servers' => ServerTable::make($project->servers()->latest())->simplePaginate(),
             'public_key' => __('servers.create.public_key_text', ['public_key' => get_public_key_content()]),
-            'server_providers' => ServerProviderResource::collection(ServerProvider::getByProjectId($project->id)->get()),
+            'server_providers' => ServerProviderResource::collection(ServerProvider::getByProjectId($project->id, user())->get()),
         ]);
     }
 
@@ -56,16 +53,7 @@ class ServerController extends Controller
 
         $this->authorize('viewAny', [Server::class, $project]);
 
-        $this->validate($request, [
-            'query' => [
-                'nullable',
-                'string',
-            ],
-        ]);
-
-        $servers = $project->servers()->where('name', 'like', "%{$request->input('query')}%")
-            ->take(10)
-            ->get();
+        $servers = app(GetServers::class)->get($project, $request->input(), 10);
 
         return ServerResource::collection($servers);
     }
@@ -110,8 +98,8 @@ class ServerController extends Controller
         $server->refresh();
 
         return back()
-            ->with($server->getStatusColor(), __('Server status is :status', [
-                'status' => $server->status,
+            ->with($server->status->getColor(), __('Server status is :status', [
+                'status' => $server->status->getText(),
             ]));
     }
 
@@ -135,7 +123,15 @@ class ServerController extends Controller
 
         $server->checkForUpdates();
 
-        return back()->with('info', 'Available updates: '.$server->refresh()->updates);
+        $server->refresh();
+
+        $message = "Available updates: {$server->updates}";
+
+        if ($server->kernel_updates > 0) {
+            $message .= " (plus {$server->kernel_updates} kernel)";
+        }
+
+        return back()->with('info', $message);
     }
 
     #[Post('/{server}/update', name: 'servers.update')]
@@ -148,9 +144,21 @@ class ServerController extends Controller
         return back()->with('info', 'Server is being updated. This may take a while.');
     }
 
+    #[Post('/{server}/update-kernel', name: 'servers.update-kernel')]
+    public function updateKernel(Server $server): RedirectResponse
+    {
+        $this->authorize('update', $server);
+
+        app(UpdateKernel::class)->updateKernel($server);
+
+        return back()->with('info', 'Kernel is being updated and the server will restart.');
+    }
+
     #[Post('/{server}/transfer', name: 'servers.transfer')]
     public function transfer(Server $server, Request $request): RedirectResponse
     {
+        $this->authorize('delete', $server);
+
         $server = app(TransferServer::class)->transfer(user(), $server, $request->all());
 
         user()->update(['current_project_id' => $server->project_id]);
@@ -164,14 +172,7 @@ class ServerController extends Controller
     {
         $this->authorize('delete', $server);
 
-        $this->validate($request, [
-            'name' => [
-                'required',
-                Rule::in([$server->name]),
-            ],
-        ]);
-
-        $server->delete();
+        app(DeleteServer::class)->delete($server, $request->all());
 
         return redirect()->route('servers')
             ->with('success', __('Server deleted successfully.'));

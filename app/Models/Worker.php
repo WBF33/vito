@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\WorkerStatus;
+use App\Helpers\SiteShellEnvironment;
 use App\Services\ProcessManager\ProcessManager;
 use Database\Factories\WorkerFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,9 +19,11 @@ use Throwable;
  * @property bool $auto_start
  * @property bool $auto_restart
  * @property int $numprocs
+ * @property ?array<int, array{key: string, value: string, is_secret: bool}> $environment
  * @property int $redirect_stderr
  * @property string $stdout_logfile
- * @property string $status
+ * @property WorkerStatus $status
+ * @property ?string $error
  * @property string $name
  * @property Server $server
  * @property ?Site $site
@@ -38,6 +41,7 @@ class Worker extends AbstractModel
         'auto_start',
         'auto_restart',
         'numprocs',
+        'environment',
         'redirect_stderr',
         'stdout_logfile',
         'status',
@@ -50,21 +54,9 @@ class Worker extends AbstractModel
         'auto_start' => 'boolean',
         'auto_restart' => 'boolean',
         'numprocs' => 'integer',
+        'environment' => 'encrypted:array',
         'redirect_stderr' => 'boolean',
-    ];
-
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        WorkerStatus::RUNNING => 'success',
-        WorkerStatus::CREATING => 'warning',
-        WorkerStatus::DELETING => 'warning',
-        WorkerStatus::FAILED => 'danger',
-        WorkerStatus::STARTING => 'warning',
-        WorkerStatus::STOPPING => 'warning',
-        WorkerStatus::RESTARTING => 'warning',
-        WorkerStatus::STOPPED => 'gray',
+        'status' => WorkerStatus::class,
     ];
 
     public static function boot(): void
@@ -87,7 +79,7 @@ class Worker extends AbstractModel
 
     public function getServerIdAttribute(?int $value): ?int
     {
-        if ($value === 0) {
+        if ($value === 0 && $this->site) {
             $value = $this->site->server_id;
             $this->fill(['server_id' => $this->site->server_id]);
             $this->save();
@@ -124,5 +116,42 @@ class Worker extends AbstractModel
     public function getLogFile(): string
     {
         return $this->getLogDirectory().'/'.$this->id.'.log';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function environmentMap(): array
+    {
+        $map = [];
+
+        foreach ($this->environment ?? [] as $variable) {
+            $map[$variable['key']] = $variable['value'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function effectiveEnvironment(): array
+    {
+        $base = $this->environmentMap();
+
+        if ($this->site_id && $this->site) {
+            return array_merge($base, SiteShellEnvironment::collect($this->site));
+        }
+
+        return $base;
+    }
+
+    public function isSiteBootstrap(): bool
+    {
+        if (! $this->site_id || ! $this->site) {
+            return false;
+        }
+
+        return $this->site->bootstrapWorkerId() === $this->id;
     }
 }

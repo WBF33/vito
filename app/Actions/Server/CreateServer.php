@@ -2,22 +2,19 @@
 
 namespace App\Actions\Server;
 
-use App\Enums\ServerStatus;
-use App\Facades\Notifier;
+use App\Jobs\Server\InstallJob;
 use App\Models\Project;
 use App\Models\Server;
+use App\Models\ServerProvider;
 use App\Models\User;
-use App\Notifications\ServerInstallationFailed;
 use App\ServerProviders\Custom;
 use App\ValidationRules\RestrictedIPAddressesRule;
 use Exception;
 use Illuminate\Database\Query\Builder;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 
 class CreateServer
 {
@@ -28,7 +25,14 @@ class CreateServer
      */
     public function create(User $creator, Project $project, array $input): Server
     {
-        Validator::make($input, self::rules($project, $input))->validate();
+        $this->validate($project, $input);
+
+        if ($input['provider'] != 'custom' && isset($input['server_provider'])) {
+            $provider = ServerProvider::query()->findOrFail($input['server_provider']);
+            if ($creator->cannot('view', $provider)) {
+                abort(403, 'You do not have permission to use this server provider.');
+            }
+        }
 
         $this->server = new Server([
             'project_id' => $project->id,
@@ -65,19 +69,10 @@ class CreateServer
             $this->createServices($input);
 
             // install server
-            dispatch(function (): void {
-                app(InstallServer::class)->run($this->server);
-            })
-                ->catch(function (Throwable $e): void {
-                    $this->server->update([
-                        'status' => ServerStatus::INSTALLATION_FAILED,
-                    ]);
-                    Notifier::send($this->server, new ServerInstallationFailed($this->server));
-                    Log::error('server-installation-error', [
-                        'error' => (string) $e,
-                    ]);
-                })
-                ->onQueue('ssh');
+            dispatch(new InstallJob($this->server))->onQueue('ssh');
+
+            // Ensure we get the default db values in the model
+            $this->server->refresh();
 
             return $this->server;
         } catch (Exception $e) {
@@ -89,11 +84,7 @@ class CreateServer
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $input
-     * @return array<string, mixed>
-     */
-    public static function rules(Project $project, array $input): array
+    private function validate(Project $project, array $input): void
     {
         $rules = [
             'provider' => [
@@ -119,6 +110,7 @@ class CreateServer
             'ip' => [
                 Rule::when(fn (): bool => isset($input['provider']) && $input['provider'] == Custom::id(), [
                     'required',
+                    'ip',
                     new RestrictedIPAddressesRule,
                 ]),
             ],
@@ -148,14 +140,14 @@ class CreateServer
             ],
         ];
 
-        return array_merge($rules, self::providerRules($input));
+        Validator::make($input, array_merge($rules, $this->providerRules($input)))->validate();
     }
 
     /**
      * @param  array<string, mixed>  $input
      * @return array<string, array<string>>
      */
-    private static function providerRules(array $input): array
+    private function providerRules(array $input): array
     {
         if (
             ! isset($input['provider']) ||
@@ -178,7 +170,9 @@ class CreateServer
     {
         $this->server->services()->forceDelete();
 
-        foreach ($input['services'] as $service) {
+        $services = $input['services'] ?? [];
+
+        foreach ($services as $service) {
             $this->server->services()->create([
                 'type' => $service['type'],
                 'name' => $service['name'],

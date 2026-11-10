@@ -10,11 +10,7 @@ use App\Models\Project;
 use App\Models\Server;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
-use Knuckles\Scribe\Attributes\BodyParam;
-use Knuckles\Scribe\Attributes\Endpoint;
-use Knuckles\Scribe\Attributes\Group;
-use Knuckles\Scribe\Attributes\Response;
-use Knuckles\Scribe\Attributes\ResponseFromApiResource;
+use Illuminate\Http\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
 use Spatie\RouteAttributes\Attributes\Get;
 use Spatie\RouteAttributes\Attributes\Middleware;
@@ -24,12 +20,9 @@ use Spatie\RouteAttributes\Attributes\Put;
 
 #[Prefix('api/projects/{project}/servers/{server}/firewall-rules')]
 #[Middleware(['auth:sanctum', 'can-see-project'])]
-#[Group(name: 'firewall-rules')]
 class FirewallRuleController extends Controller
 {
     #[Get('/', name: 'api.projects.servers.firewall-rules', middleware: 'ability:read')]
-    #[Endpoint(title: 'list', description: 'Get all firewall rules.')]
-    #[ResponseFromApiResource(FirewallRuleResource::class, FirewallRule::class, collection: true, paginate: 25)]
     public function index(Project $project, Server $server): ResourceCollection
     {
         $this->authorize('viewAny', [FirewallRule::class, $server]);
@@ -40,14 +33,6 @@ class FirewallRuleController extends Controller
     }
 
     #[Post('/', name: 'api.projects.servers.firewall-rules.create', middleware: 'ability:write')]
-    #[Endpoint(title: 'create', description: 'Create a new firewall rule.')]
-    #[BodyParam(name: 'name', required: true)]
-    #[BodyParam(name: 'type', required: true, enum: ['allow', 'deny'])]
-    #[BodyParam(name: 'protocol', required: true, enum: ['tcp', 'udp'])]
-    #[BodyParam(name: 'port', required: true)]
-    #[BodyParam(name: 'source', required: false)]
-    #[BodyParam(name: 'mask', description: 'Mask for source IP.', example: '0')]
-    #[ResponseFromApiResource(FirewallRuleResource::class, FirewallRule::class)]
     public function create(Request $request, Project $project, Server $server): FirewallRuleResource
     {
         $this->authorize('create', [FirewallRule::class, $server]);
@@ -60,14 +45,6 @@ class FirewallRuleController extends Controller
     }
 
     #[Put('{firewallRule}', name: 'api.projects.servers.firewall-rules.edit', middleware: 'ability:write')]
-    #[Endpoint(title: 'edit', description: 'Update an existing firewall rule.')]
-    #[BodyParam(name: 'name', required: true)]
-    #[BodyParam(name: 'type', required: true, enum: ['allow', 'deny'])]
-    #[BodyParam(name: 'protocol', required: true, enum: ['tcp', 'udp'])]
-    #[BodyParam(name: 'port', required: true)]
-    #[BodyParam(name: 'source', required: false)]
-    #[BodyParam(name: 'mask', description: 'Mask for source IP.', example: '0')]
-    #[ResponseFromApiResource(FirewallRuleResource::class, FirewallRule::class)]
     public function edit(Request $request, Project $project, Server $server, FirewallRule $firewallRule): FirewallRuleResource
     {
         $this->authorize('update', [FirewallRule::class, $firewallRule]);
@@ -80,8 +57,6 @@ class FirewallRuleController extends Controller
     }
 
     #[Get('{firewallRule}', name: 'api.projects.servers.firewall-rules.show', middleware: 'ability:read')]
-    #[Endpoint(title: 'show', description: 'Get a firewall rule by ID.')]
-    #[ResponseFromApiResource(FirewallRuleResource::class, FirewallRule::class)]
     public function show(Project $project, Server $server, FirewallRule $firewallRule): FirewallRuleResource
     {
         $this->authorize('view', [$firewallRule, $server]);
@@ -92,9 +67,7 @@ class FirewallRuleController extends Controller
     }
 
     #[Delete('{firewallRule}', name: 'api.projects.servers.firewall-rules.delete', middleware: 'ability:write')]
-    #[Endpoint(title: 'delete', description: 'Delete firewall rule.')]
-    #[Response(status: 204)]
-    public function delete(Project $project, Server $server, FirewallRule $firewallRule): \Illuminate\Http\Response
+    public function delete(Project $project, Server $server, FirewallRule $firewallRule): Response
     {
         $this->authorize('delete', [$firewallRule, $server]);
 

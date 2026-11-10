@@ -1,0 +1,123 @@
+type: object
+properties:
+  id:
+    type: integer
+    example: 1
+  project_id:
+    type: integer
+    example: 1
+  services:
+    type: object
+    additionalProperties:
+      type: string
+    example:
+      php: '8.2'
+      nginx: '1.24'
+  user_id:
+    type: integer
+    example: 1
+  provider_id:
+    type: integer
+    nullable: true
+    example: 1
+  name:
+    type: string
+    example: 'production-server'
+  ssh_user:
+    type: string
+    example: 'root'
+  ssh_users:
+    type: array
+    items:
+      type: string
+    example: ['root', 'deploy']
+  ip:
+    type: string
+    example: '192.168.1.100'
+  local_ip:
+    type: string
+    nullable: true
+    example: '10.0.0.100'
+  port:
+    type: integer
+    example: 22
+  os:
+    type: string
+    enum: ['ubuntu_18', 'ubuntu_20', 'ubuntu_22', 'ubuntu_24']
+    example: 'ubuntu_22'
+  provider:
+    type: string
+    example: 'digitalocean'
+  provider_data:
+    type: object
+    nullable: true
+  public_key:
+    type: string
+    nullable: true
+  status:
+    type: string
+    enum: ['ready', 'installing', 'installation_failed', 'disconnected', 'updating']
+    example: 'ready'
+  auto_update:
+    type: boolean
+    example: true
+  auto_update_schedule:
+    type: string
+    nullable: true
+    description: 'Cron expression for Vito-driven automatic updates (interpreted in the app timezone).'
+    example: '0 2 * * *'
+  progress:
+    type: integer
+    minimum: 0
+    maximum: 100
+    example: 100
+  progress_step:
+    type: string
+    example: 'Installing services'
+  updates:
+    type: integer
+    nullable: true
+    description: 'Number of available package updates detected on the server.'
+    example: 5
+  kernel_updates:
+    type: integer
+    nullable: true
+    description: 'Number of available kernel updates detected on the server.'
+    example: 1
+  last_update_check:
+    type: string
+    format: date-time
+    nullable: true
+  status_color:
+    type: string
+    enum: ['success', 'warning', 'danger', 'gray']
+    example: 'success'
+  features:
+    type: array
+    items:
+      type: string
+    example: ['ssl', 'backups', 'monitoring']
+  warnings:
+    type: array
+    description: 'Active warnings for the server (available updates, kernel updates, reboot required).'
+    items:
+      type: object
+      properties:
+        key:
+          type: string
+          enum: ['updates_available', 'kernel_update_available', 'reboot_required']
+          example: 'updates_available'
+        count:
+          type: integer
+          description: 'Present for update-related warnings; absent for reboot_required.'
+          example: 5
+    example:
+      - key: 'updates_available'
+        count: 5
+      - key: 'reboot_required'
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Actions\Database\RestoreBackup;
+use App\Actions\Backup\RestoreBackup;
 use App\Http\Resources\BackupFileResource;
 use App\Http\Resources\BackupResource;
 use App\Models\Backup;
@@ -18,13 +18,15 @@ use Spatie\RouteAttributes\Attributes\Middleware;
 use Spatie\RouteAttributes\Attributes\Post;
 use Spatie\RouteAttributes\Attributes\Prefix;
 
-#[Prefix('servers/{server}/database/backups/{backup}/files')]
+#[Prefix('servers/{server}/backups/{backup}/files')]
 #[Middleware(['auth', 'has-project'])]
 class BackupFileController extends Controller
 {
     #[Get('/', name: 'backup-files')]
     public function index(Server $server, Backup $backup): Response
     {
+        abort_unless($backup->server_id === $server->id, 404);
+
         $this->authorize('viewAny', [BackupFile::class, $backup]);
 
         return Inertia::render('backups/files', [
@@ -38,7 +40,9 @@ class BackupFileController extends Controller
     #[Post('/{backupFile}/restore', name: 'backup-files.restore')]
     public function restore(Request $request, Server $server, Backup $backup, BackupFile $backupFile): RedirectResponse
     {
-        $this->authorize('update', $backup);
+        abort_unless($backup->server_id === $server->id && $backupFile->backup_id === $backup->id, 404);
+
+        $this->authorize('update', $backupFile);
 
         app(RestoreBackup::class)->restore($backupFile, $request->input());
 
@@ -49,6 +53,8 @@ class BackupFileController extends Controller
     #[Delete('/{backupFile}', name: 'backup-files.destroy')]
     public function destroy(Server $server, Backup $backup, BackupFile $backupFile): RedirectResponse
     {
+        abort_unless($backup->server_id === $server->id && $backupFile->backup_id === $backup->id, 404);
+
         $this->authorize('delete', $backupFile);
 
         $backupFile->deleteFile();

@@ -1,7 +1,6 @@
 import React, { FormEvent, ReactNode, useState } from 'react';
 import { useForm, usePage } from '@inertiajs/react';
 import { Server } from '@/types/server';
-import { SharedData } from '@/types';
 import {
   Dialog,
   DialogClose,
@@ -16,17 +15,19 @@ import { Form, FormField, FormFields } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import InputError from '@/components/ui/input-error';
 import { Button } from '@/components/ui/button';
-import { LoaderCircleIcon } from 'lucide-react';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { CheckIcon, ChevronsUpDownIcon, LoaderCircleIcon } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
+import { useConfigs } from '@/stores/bootstrap-store';
 
 export default function InstallService({ name, children }: { name?: string; children: ReactNode }) {
-  const page = usePage<
-    {
-      server: Server;
-    } & SharedData
-  >();
+  const page = usePage<{ server: Server }>();
+  const configs = useConfigs()!;
 
   const [open, setOpen] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
+  const [versionOpen, setVersionOpen] = useState(false);
   const form = useForm<{
     type: string;
     name: string;
@@ -61,26 +62,39 @@ export default function InstallService({ name, children }: { name?: string; chil
             {!name && (
               <FormField>
                 <Label htmlFor="name">Name</Label>
-                <Select
-                  value={form.data.name}
-                  onValueChange={(value) => {
-                    form.setData('name', value);
-                    form.setData('version', '');
-                  }}
-                >
-                  <SelectTrigger id="name">
-                    <SelectValue placeholder="Select a service" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {Object.entries(page.props.configs.service.services).map(([key, service]) => (
-                        <SelectItem key={`service-${key}`} value={key}>
-                          {service.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <Popover open={nameOpen} onOpenChange={setNameOpen}>
+                  <PopoverTrigger asChild>
+                    <Button id="name" variant="outline" role="combobox" aria-expanded={nameOpen} className="w-full justify-between font-normal">
+                      {form.data.name ? configs.service.services[form.data.name]?.label || form.data.name : 'Select a service'}
+                      <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search service..." />
+                      <CommandList>
+                        <CommandGroup>
+                          {Object.entries(configs.service.services)
+                            .filter(([, service]) => service.type !== 'vpn')
+                            .map(([key, service]) => (
+                              <CommandItem
+                                key={`service-${key}`}
+                                value={service.label}
+                                onSelect={() => {
+                                  form.setData('name', key);
+                                  form.setData('version', '');
+                                  setNameOpen(false);
+                                }}
+                              >
+                                {service.label}
+                                <CheckIcon className={cn('ml-auto', form.data.name === key ? 'opacity-100' : 'opacity-0')} />
+                              </CommandItem>
+                            ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 <InputError message={form.errors.type || form.errors.name} />
               </FormField>
             )}
@@ -88,21 +102,44 @@ export default function InstallService({ name, children }: { name?: string; chil
             {/*version*/}
             <FormField>
               <Label htmlFor="version">Version</Label>
-              <Select value={form.data.version} onValueChange={(value) => form.setData('version', value)}>
-                <SelectTrigger id="version">
-                  <SelectValue placeholder="Select a version" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {form.data.name &&
-                      page.props.configs.service.services[form.data.name].versions.map((version) => (
-                        <SelectItem key={`version-${form.data.name}-${version}`} value={version}>
-                          {version}
-                        </SelectItem>
-                      ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <Popover open={versionOpen} onOpenChange={setVersionOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="version"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={versionOpen}
+                    className="w-full justify-between font-normal"
+                    disabled={!form.data.name}
+                  >
+                    {form.data.version || 'Select a version'}
+                    <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search version..." />
+                    <CommandList>
+                      <CommandGroup>
+                        {form.data.name &&
+                          configs.service.services[form.data.name].versions.map((version) => (
+                            <CommandItem
+                              key={`version-${form.data.name}-${version}`}
+                              value={version}
+                              onSelect={() => {
+                                form.setData('version', version);
+                                setVersionOpen(false);
+                              }}
+                            >
+                              {version}
+                              <CheckIcon className={cn('ml-auto', form.data.version === version ? 'opacity-100' : 'opacity-0')} />
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <InputError message={form.errors.version} />
             </FormField>
           </FormFields>

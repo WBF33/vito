@@ -3,11 +3,10 @@
 namespace App\Actions\Worker;
 
 use App\Enums\WorkerStatus;
+use App\Jobs\Worker\CreateJob;
 use App\Models\Server;
-use App\Models\Service;
 use App\Models\Site;
 use App\Models\Worker;
-use App\Services\ProcessManager\ProcessManager;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -21,52 +20,38 @@ class CreateWorker
      */
     public function create(Server $server, array $input, ?Site $site = null): Worker
     {
-        Validator::make($input, self::rules($server, $site))->validate();
+        $this->validate($server, $input, $site);
+
+        // Determine site_id: use provided site or from input
+        $siteId = $site?->id;
+        if (! $site && isset($input['site_id']) && ! empty($input['site_id'])) {
+            $siteId = (int) $input['site_id'];
+        }
 
         $worker = new Worker([
             'server_id' => $server->id,
-            'site_id' => $site?->id,
+            'site_id' => $siteId,
             'name' => $input['name'],
             'command' => $input['command'],
             'user' => $input['user'],
             'auto_start' => $input['auto_start'] ? 1 : 0,
             'auto_restart' => $input['auto_restart'] ? 1 : 0,
             'numprocs' => $input['numprocs'],
+            'environment' => isset($input['environment'])
+                ? UpdateWorkerEnvironment::processVariables($input['environment'], null)
+                : null,
             'status' => WorkerStatus::CREATING,
         ]);
         $worker->save();
 
-        dispatch(function () use ($worker): void {
-            /** @var Service $service */
-            $service = $worker->server->processManager();
-            /** @var ProcessManager $processManager */
-            $processManager = $service->handler();
-            $processManager->create(
-                $worker->id,
-                $worker->command,
-                $worker->user,
-                $worker->auto_start,
-                $worker->auto_restart,
-                $worker->numprocs,
-                $worker->getLogFile(),
-                $worker->site?->path,
-                $worker->site_id
-            );
-            $worker->status = WorkerStatus::RUNNING;
-            $worker->save();
-        })->catch(function () use ($worker): void {
-            $worker->delete();
-        })->onQueue('ssh');
+        dispatch(new CreateJob($worker))->onQueue('ssh');
 
         return $worker;
     }
 
-    /**
-     * @return array<string, array<string>>
-     */
-    public static function rules(Server $server, ?Site $site = null): array
+    private function validate(Server $server, array $input, ?Site $site = null): void
     {
-        return [
+        $rules = [
             'name' => [
                 'required',
                 'string',
@@ -100,6 +85,24 @@ class CreateWorker
                 'numeric',
                 'min:1',
             ],
+            'environment' => [
+                'sometimes',
+                'nullable',
+                'array',
+                'max:100',
+            ],
+            ...UpdateWorkerEnvironment::nestedRules('environment'),
         ];
+
+        // Add site_id validation if provided in input
+        if (isset($input['site_id']) && ! empty($input['site_id'])) {
+            $rules['site_id'] = [
+                'required',
+                'integer',
+                Rule::exists('sites', 'id')->where('server_id', $server->id),
+            ];
+        }
+
+        Validator::make($input, $rules)->validate();
     }
 }

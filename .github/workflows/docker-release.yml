@@ -44,6 +44,11 @@ jobs:
             if [[ "$IS_PRERELEASE" == "false" ]]; then
               TAGS="$TAGS,vitodeploy/vito:latest"
             fi
+          elif [[ "$COMMIT_REF" == 4.x* ]]; then
+            TAGS="$TAGS,vitodeploy/vito:4.x"
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              TAGS="$TAGS,vitodeploy/vito:latest"
+            fi
           fi
 
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"

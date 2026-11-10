@@ -29,16 +29,6 @@ export default function AuthLayout({ children, title, description }: PropsWithCh
             </div>
           </div>
           {children}
-          <div className="text-muted-foreground/50 text-center text-xs">
-            VitoDeploy{' '}
-            <a
-              href={`https://github.com/vitodeploy/vito/releases/tag/${page.props.version}`}
-              className="hover:text-primary cursor-pointer"
-              target="_blank"
-            >
-              {page.props.version}
-            </a>
-          </div>
         </div>
       </div>
     </div>

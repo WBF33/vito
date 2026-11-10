@@ -20,8 +20,10 @@ class DatabaseUserResource extends JsonResource
             'username' => $this->username,
             'databases' => $this->databases,
             'host' => $this->host,
-            'status' => $this->status,
-            'status_color' => DatabaseUser::$statusColors[$this->status] ?? 'gray',
+            'permission' => $this->permission->getText(),
+            'permission_color' => $this->permission->getColor(),
+            'status' => $this->status->getText(),
+            'status_color' => $this->status->getColor(),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

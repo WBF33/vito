@@ -6,13 +6,17 @@ use App\Plugins\RegisterServiceType;
 use App\Services\Database\Mariadb;
 use App\Services\Database\Mysql;
 use App\Services\Database\Postgresql;
+use App\Services\Fail2ban\Fail2ban;
 use App\Services\Firewall\Ufw;
+use App\Services\LogAnalysis\GoAccess\GoAccess;
 use App\Services\Monitoring\RemoteMonitor\RemoteMonitor;
 use App\Services\Monitoring\VitoAgent\VitoAgent;
 use App\Services\NodeJS\NodeJS;
 use App\Services\PHP\PHP;
 use App\Services\ProcessManager\Supervisor;
 use App\Services\Redis\Redis;
+use App\Services\Valkey\Valkey;
+use App\Services\VPN\WireGuard;
 use App\Services\Webserver\Caddy;
 use App\Services\Webserver\Nginx;
 use Illuminate\Support\ServiceProvider;
@@ -27,10 +31,13 @@ class ServiceTypeServiceProvider extends ServiceProvider
         $this->databases();
         $this->memoryDatabases();
         $this->firewalls();
+        $this->fail2ban();
         $this->processManagers();
         $this->monitoring();
+        $this->logAnalysis();
         $this->php();
         $this->node();
+        $this->vpn();
     }
 
     private function webservers(): void
@@ -39,12 +46,28 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->type(Nginx::type())
             ->label('Nginx')
             ->handler(Nginx::class)
+            ->data(['creates_site_ssls' => true])
+            ->configPaths([
+                [
+                    'name' => 'nginx.conf',
+                    'path' => '/etc/nginx/nginx.conf',
+                    'sudo' => true,
+                ],
+            ])
             ->register();
 
         RegisterServiceType::make(Caddy::id())
             ->type(Caddy::type())
             ->label('Caddy (beta)')
             ->handler(Caddy::class)
+            ->data(['creates_site_ssls' => false])
+            ->configPaths([
+                [
+                    'name' => 'Caddyfile',
+                    'path' => '/etc/caddy/Caddyfile',
+                    'sudo' => true,
+                ],
+            ])
             ->register();
     }
 
@@ -55,8 +78,20 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->label('MySQL')
             ->handler(Mysql::class)
             ->versions([
+                '9.7',
                 '8.4',
-                '8.0',
+            ])
+            ->configPaths([
+                [
+                    'name' => 'my.cnf',
+                    'path' => '/etc/mysql/my.cnf',
+                    'sudo' => true,
+                ],
+                [
+                    'name' => 'mysqld.cnf',
+                    'path' => '/etc/mysql/mysql.conf.d/mysqld.cnf',
+                    'sudo' => true,
+                ],
             ])
             ->register();
         RegisterServiceType::make(Postgresql::id())
@@ -64,12 +99,27 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->label('PostgreSQL')
             ->handler(Postgresql::class)
             ->versions([
+                '18',
                 '17',
                 '16',
                 '15',
-                '14',
-                '13',
-                '12',
+            ])
+            ->configPaths([
+                [
+                    'name' => 'postgresql.conf',
+                    'path' => '/etc/postgresql/{version}/main/postgresql.conf',
+                    'sudo' => true,
+                ],
+                [
+                    'name' => 'pg_hba.conf',
+                    'path' => '/etc/postgresql/{version}/main/pg_hba.conf',
+                    'sudo' => true,
+                ],
+                [
+                    'name' => 'pg_ident.conf',
+                    'path' => '/etc/postgresql/{version}/main/pg_ident.conf',
+                    'sudo' => true,
+                ],
             ])
             ->register();
         RegisterServiceType::make(Mariadb::id())
@@ -77,11 +127,22 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->label('MariaDB')
             ->handler(Mariadb::class)
             ->versions([
+                '12.3',
+                '11.8',
                 '11.4',
                 '10.11',
-                '10.6',
-                '10.4',
-                '10.3',
+            ])
+            ->configPaths([
+                [
+                    'name' => 'my.cnf',
+                    'path' => '/etc/mysql/my.cnf',
+                    'sudo' => true,
+                ],
+                [
+                    'name' => '50-server.cnf',
+                    'path' => '/etc/mysql/mariadb.conf.d/50-server.cnf',
+                    'sudo' => true,
+                ],
             ])
             ->register();
     }
@@ -92,6 +153,26 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->type(Redis::type())
             ->label('Redis')
             ->handler(Redis::class)
+            ->configPaths([
+                [
+                    'name' => 'redis.conf',
+                    'path' => '/etc/redis/redis.conf',
+                    'sudo' => true,
+                ],
+            ])
+            ->register();
+
+        RegisterServiceType::make(Valkey::id())
+            ->type(Valkey::type())
+            ->label('Valkey')
+            ->handler(Valkey::class)
+            ->configPaths([
+                [
+                    'name' => 'valkey.conf',
+                    'path' => '/etc/valkey/valkey.conf',
+                    'sudo' => true,
+                ],
+            ])
             ->register();
     }
 
@@ -104,12 +185,29 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->register();
     }
 
+    private function fail2ban(): void
+    {
+        RegisterServiceType::make(Fail2ban::id())
+            ->type(Fail2ban::type())
+            ->label('Fail2ban')
+            ->handler(Fail2ban::class)
+            ->versions(['latest'])
+            ->register();
+    }
+
     private function processManagers(): void
     {
         RegisterServiceType::make(Supervisor::id())
             ->type(Supervisor::type())
             ->label('Supervisor')
             ->handler(Supervisor::class)
+            ->configPaths([
+                [
+                    'name' => 'supervisord.conf',
+                    'path' => '/etc/supervisor/supervisord.conf',
+                    'sudo' => true,
+                ],
+            ])
             ->register();
     }
 
@@ -128,6 +226,15 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->register();
     }
 
+    private function logAnalysis(): void
+    {
+        RegisterServiceType::make(GoAccess::id())
+            ->type(GoAccess::type())
+            ->label('GoAccess')
+            ->handler(GoAccess::class)
+            ->register();
+    }
+
     private function php(): void
     {
         RegisterServiceType::make(PHP::id())
@@ -135,6 +242,7 @@ class ServiceTypeServiceProvider extends ServiceProvider
             ->label('PHP')
             ->handler(PHP::class)
             ->versions([
+                '8.5',
                 '8.4',
                 '8.3',
                 '8.2',
@@ -158,6 +266,18 @@ class ServiceTypeServiceProvider extends ServiceProvider
                     'opcache',
                 ],
             ])
+            ->configPaths([
+                [
+                    'name' => 'fpm/php.ini',
+                    'path' => '/etc/php/{version}/fpm/php.ini',
+                    'sudo' => true,
+                ],
+                [
+                    'name' => 'cli/php.ini',
+                    'path' => '/etc/php/{version}/cli/php.ini',
+                    'sudo' => true,
+                ],
+            ])
             ->register();
     }
 
@@ -165,7 +285,7 @@ class ServiceTypeServiceProvider extends ServiceProvider
     {
         RegisterServiceType::make(NodeJS::id())
             ->type(NodeJS::type())
-            ->label('Node.js')
+            ->label('Node.js (Deprecated)')
             ->handler(NodeJS::class)
             ->versions([
                 '22',
@@ -173,6 +293,15 @@ class ServiceTypeServiceProvider extends ServiceProvider
                 '18',
                 '16',
             ])
+            ->register();
+    }
+
+    private function vpn(): void
+    {
+        RegisterServiceType::make(WireGuard::id())
+            ->type(WireGuard::type())
+            ->label('WireGuard')
+            ->handler(WireGuard::class)
             ->register();
     }
 }

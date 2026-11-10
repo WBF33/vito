@@ -5,9 +5,9 @@ namespace App\Http\Controllers;
 use App\Actions\SshKey\DeleteKeyFromServer;
 use App\Actions\SshKey\DeployKeyToServer;
 use App\Exceptions\SSHError;
-use App\Http\Resources\SshKeyResource;
 use App\Models\Server;
 use App\Models\SshKey;
+use App\Tables\Servers\ServerSshKeyTable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -26,10 +26,10 @@ class ServerSshKeyController extends Controller
     #[Get('/', name: 'server-ssh-keys')]
     public function index(Server $server): Response
     {
-        $this->authorize('viewAnyServer', [SshKey::class, $server]);
+        $this->authorize('view', $server);
 
         return Inertia::render('server-ssh-keys/index', [
-            'sshKeys' => SshKeyResource::collection($server->sshKeys()->with('user')->simplePaginate(config('web.pagination_size'))),
+            'sshKeys' => ServerSshKeyTable::make($server->sshKeys())->simplePaginate(),
         ]);
     }
 
@@ -39,7 +39,7 @@ class ServerSshKeyController extends Controller
     #[Post('/', name: 'server-ssh-keys.store')]
     public function store(Request $request, Server $server): RedirectResponse
     {
-        $this->authorize('createServer', [SshKey::class, $server]);
+        $this->authorize('update', $server);
 
         /** @var ?SshKey $sshKey */
         $sshKey = user()->sshKeys()->find($request->input('key'));
@@ -50,7 +50,7 @@ class ServerSshKeyController extends Controller
             ]);
         }
 
-        app(DeployKeyToServer::class)->deploy($server, $sshKey);
+        app(DeployKeyToServer::class)->deploy($server, $sshKey, $request->input());
 
         return back()->with('success', 'SSH key deployed.');
     }
@@ -61,7 +61,7 @@ class ServerSshKeyController extends Controller
     #[Delete('/{sshKey}', name: 'server-ssh-keys.destroy')]
     public function destroy(Server $server, SshKey $sshKey): RedirectResponse
     {
-        $this->authorize('deleteServer', [SshKey::class, $server]);
+        $this->authorize('update', $server);
 
         app(DeleteKeyFromServer::class)->delete($server, $sshKey);
 

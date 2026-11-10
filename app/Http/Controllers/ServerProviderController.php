@@ -7,6 +7,7 @@ use App\Actions\ServerProvider\DeleteServerProvider;
 use App\Actions\ServerProvider\EditServerProvider;
 use App\Http\Resources\ServerProviderResource;
 use App\Models\ServerProvider;
+use App\Tables\ServerProviderTable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,8 +30,12 @@ class ServerProviderController extends Controller
     {
         $this->authorize('viewAny', ServerProvider::class);
 
+        $user = user();
+
         return Inertia::render('server-providers/index', [
-            'serverProviders' => ServerProviderResource::collection(ServerProvider::getByProjectId(user()->current_project_id)->simplePaginate(config('web.pagination_size'))),
+            'serverProviders' => ServerProviderTable::make(
+                ServerProvider::getByProjectId($user->current_project_id, $user)
+            )->simplePaginate(),
         ]);
     }
 
@@ -39,7 +44,9 @@ class ServerProviderController extends Controller
     {
         $this->authorize('viewAny', ServerProvider::class);
 
-        return ServerProviderResource::collection(ServerProvider::getByProjectId(user()->current_project_id)->get());
+        $user = user();
+
+        return ServerProviderResource::collection(ServerProvider::getByProjectId($user->current_project_id, $user)->get());
     }
 
     #[Post('/', name: 'server-providers.store')]
@@ -47,7 +54,11 @@ class ServerProviderController extends Controller
     {
         $this->authorize('create', ServerProvider::class);
 
-        app(CreateServerProvider::class)->create(user(), user()->currentProject, $request->all());
+        $projectId = $request->boolean('global') ? null : user()->currentProject?->id;
+
+        $this->authorize('assignToProject', [ServerProvider::class, $projectId]);
+
+        app(CreateServerProvider::class)->create(user(), $request->all(), $projectId);
 
         return back()->with('success', 'Server provider created.');
     }
@@ -57,7 +68,11 @@ class ServerProviderController extends Controller
     {
         $this->authorize('update', $serverProvider);
 
-        app(EditServerProvider::class)->edit($serverProvider, user()->currentProject, $request->all());
+        $projectId = $request->boolean('global') ? null : user()->currentProject?->id;
+
+        $this->authorize('assignToProject', [ServerProvider::class, $projectId]);
+
+        app(EditServerProvider::class)->edit($serverProvider, $request->all(), $projectId);
 
         return back()->with('success', 'Server provider updated.');
     }

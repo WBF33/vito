@@ -1,170 +1,254 @@
 <?php
 
-namespace Tests\Unit\Actions\Service;
-
 use App\Actions\Service\Install;
 use App\Enums\ServiceStatus;
 use App\Facades\SSH;
+use App\Jobs\Service\UpdateVitoAgentConfigJob;
+use App\Models\Service;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
-use Tests\TestCase;
 
-class InstallTest extends TestCase
-{
-    use RefreshDatabase;
+uses(RefreshDatabase::class);
 
-    public function test_install_vito_agent(): void
-    {
-        SSH::fake('Active: active');
-        Http::fake([
-            'https://api.github.com/repos/vitodeploy/agent/tags' => Http::response([['name' => '0.1.0']]),
-        ]);
+test('install vito agent', function () {
+    SSH::fake('Active: active');
+    Http::fake([
+        'https://api.github.com/repos/vitodeploy/agent/tags' => Http::response([['name' => '0.1.0']]),
+    ]);
 
-        $this->server->monitoring()?->delete();
+    $this->server->monitoring()?->delete();
 
-        app(Install::class)->install($this->server, [
-            'type' => 'monitoring',
-            'name' => 'vito-agent',
-            'version' => 'latest',
-        ]);
+    app(Install::class)->install($this->server, [
+        'type' => 'monitoring',
+        'name' => 'vito-agent',
+        'version' => 'latest',
+    ]);
 
-        $this->assertDatabaseHas('services', [
-            'server_id' => $this->server->id,
-            'name' => 'vito-agent',
-            'type' => 'monitoring',
-            'version' => '0.1.0',
-            'status' => ServiceStatus::READY,
-        ]);
-    }
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'vito-agent',
+        'type' => 'monitoring',
+        'version' => '0.1.0',
+        'status' => ServiceStatus::READY,
+    ]);
+});
 
-    public function test_install_vito_agent_failed(): void
-    {
-        $this->server->monitoring()?->delete();
-        $this->expectExceptionMessage('Failed to fetch tags');
-        SSH::fake('Active: inactive');
-        Http::fake([
-            'https://api.github.com/repos/vitodeploy/agent/tags' => Http::response([]),
-        ]);
-        app(Install::class)->install($this->server, [
-            'type' => 'monitoring',
-            'name' => 'vito-agent',
-            'version' => 'latest',
-        ]);
-    }
+test('install vito agent failed', function () {
+    $this->server->monitoring()?->delete();
+    SSH::fake('Active: inactive');
+    Http::fake([
+        'https://api.github.com/repos/vitodeploy/agent/tags' => Http::response([]),
+    ]);
 
-    public function test_install_nginx(): void
-    {
-        $this->server->webserver()->delete();
+    $service = app(Install::class)->install($this->server, [
+        'type' => 'monitoring',
+        'name' => 'vito-agent',
+        'version' => 'latest',
+    ]);
 
-        SSH::fake('Active: active');
+    $service->refresh();
+    expect($service->status)->toEqual(ServiceStatus::INSTALLATION_FAILED);
+});
 
-        app(Install::class)->install($this->server, [
-            'type' => 'webserver',
-            'name' => 'nginx',
-            'version' => 'latest',
-        ]);
+test('install nginx', function () {
+    $this->server->webserver()->delete();
 
-        $this->assertDatabaseHas('services', [
-            'server_id' => $this->server->id,
-            'name' => 'nginx',
-            'type' => 'webserver',
-            'version' => 'latest',
-            'status' => ServiceStatus::READY,
-        ]);
-    }
+    SSH::fake('Active: active');
 
-    public function test_install_caddy(): void
-    {
-        $this->server->webserver()->delete();
+    app(Install::class)->install($this->server, [
+        'type' => 'webserver',
+        'name' => 'nginx',
+        'version' => 'latest',
+    ]);
 
-        SSH::fake('Active: active');
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'nginx',
+        'type' => 'webserver',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
+});
 
-        app(Install::class)->install($this->server, [
-            'type' => 'webserver',
-            'name' => 'caddy',
-            'version' => 'latest',
-        ]);
+test('install caddy', function () {
+    $this->server->webserver()->delete();
 
-        $this->assertDatabaseHas('services', [
-            'server_id' => $this->server->id,
-            'name' => 'caddy',
-            'type' => 'webserver',
-            'version' => 'latest',
-            'status' => ServiceStatus::READY,
-        ]);
-    }
+    SSH::fake('Active: active');
 
-    public function test_install_mysql(): void
-    {
-        $this->server->database()->delete();
+    app(Install::class)->install($this->server, [
+        'type' => 'webserver',
+        'name' => 'caddy',
+        'version' => 'latest',
+    ]);
 
-        SSH::fake('Active: active');
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'caddy',
+        'type' => 'webserver',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
+});
 
-        app(Install::class)->install($this->server, [
-            'type' => 'database',
-            'name' => 'mysql',
-            'version' => '8.0',
-        ]);
+test('install mysql', function () {
+    $this->server->database()->delete();
 
-        $this->assertDatabaseHas('services', [
-            'server_id' => $this->server->id,
-            'name' => 'mysql',
-            'type' => 'database',
-            'version' => '8.0',
-            'status' => ServiceStatus::READY,
-        ]);
-    }
+    SSH::fake('Active: active');
 
-    public function test_install_mysql_failed(): void
-    {
-        $this->expectException(ValidationException::class);
-        app(Install::class)->install($this->server, [
-            'type' => 'database',
-            'name' => 'mysql',
-            'version' => '8.0',
-        ]);
-    }
+    app(Install::class)->install($this->server, [
+        'type' => 'database',
+        'name' => 'mysql',
+        'version' => '8.4',
+    ]);
 
-    public function test_install_supervisor(): void
-    {
-        $this->server->processManager()->delete();
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'mysql',
+        'type' => 'database',
+        'version' => '8.4',
+        'status' => ServiceStatus::READY,
+    ]);
+});
 
-        SSH::fake('Active: active');
+test('install mysql failed', function () {
+    $this->expectException(ValidationException::class);
+    app(Install::class)->install($this->server, [
+        'type' => 'database',
+        'name' => 'mysql',
+        'version' => '8.4',
+    ]);
+});
 
-        app(Install::class)->install($this->server, [
-            'type' => 'process_manager',
-            'name' => 'supervisor',
-            'version' => 'latest',
-        ]);
+test('install supervisor', function () {
+    $this->server->processManager()->delete();
 
-        $this->assertDatabaseHas('services', [
-            'server_id' => $this->server->id,
-            'name' => 'supervisor',
-            'type' => 'process_manager',
-            'version' => 'latest',
-            'status' => ServiceStatus::READY,
-        ]);
-    }
+    SSH::fake('Active: active');
 
-    public function test_install_redis(): void
-    {
-        $this->server->memoryDatabase()->delete();
+    app(Install::class)->install($this->server, [
+        'type' => 'process_manager',
+        'name' => 'supervisor',
+        'version' => 'latest',
+    ]);
 
-        SSH::fake('Active: active');
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'supervisor',
+        'type' => 'process_manager',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
+});
 
-        app(Install::class)->install($this->server, [
-            'type' => 'memory_database',
-            'name' => 'redis',
-            'version' => 'latest',
-        ]);
+test('install redis', function () {
+    $this->server->memoryDatabase()->delete();
 
-        $this->assertDatabaseHas('services', [
-            'server_id' => $this->server->id,
-            'name' => 'redis',
-            'type' => 'memory_database',
-            'version' => 'latest',
-            'status' => ServiceStatus::READY,
-        ]);
-    }
-}
+    SSH::fake('Active: active');
+
+    app(Install::class)->install($this->server, [
+        'type' => 'memory_database',
+        'name' => 'redis',
+        'version' => 'latest',
+    ]);
+
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'redis',
+        'type' => 'memory_database',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
+});
+
+test('installing service dispatches agent config update', function () {
+    SSH::fake('Active: active');
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
+
+    Service::factory()->vitoAgent()->create(['server_id' => $this->server->id]);
+    $this->server->memoryDatabase()->delete();
+
+    app(Install::class)->install($this->server, [
+        'type' => 'memory_database',
+        'name' => 'redis',
+        'version' => 'latest',
+    ]);
+
+    Bus::assertDispatched(UpdateVitoAgentConfigJob::class);
+});
+
+test('installing service without unit does not dispatch agent config update', function () {
+    SSH::fake('Active: active');
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
+
+    Service::factory()->vitoAgent()->create(['server_id' => $this->server->id]);
+    $this->server->services()->where('name', 'nodejs')->delete();
+
+    app(Install::class)->install($this->server, [
+        'type' => 'nodejs',
+        'name' => 'nodejs',
+        'version' => '20',
+    ]);
+
+    Bus::assertNotDispatched(UpdateVitoAgentConfigJob::class);
+});
+
+test('failed install does not dispatch agent config update', function () {
+    SSH::fake('inactive');
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
+
+    Service::factory()->vitoAgent()->create(['server_id' => $this->server->id]);
+    $this->server->memoryDatabase()->delete();
+
+    app(Install::class)->install($this->server, [
+        'type' => 'memory_database',
+        'name' => 'redis',
+        'version' => 'latest',
+    ]);
+
+    $this->assertDatabaseHas('services', [
+        'server_id' => $this->server->id,
+        'name' => 'redis',
+        'status' => ServiceStatus::INSTALLATION_FAILED,
+    ]);
+    Bus::assertNotDispatched(UpdateVitoAgentConfigJob::class);
+});
+
+test('installing service without vito agent does not dispatch agent config update', function () {
+    SSH::fake('Active: active');
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
+
+    $this->server->memoryDatabase()->delete();
+
+    app(Install::class)->install($this->server, [
+        'type' => 'memory_database',
+        'name' => 'redis',
+        'version' => 'latest',
+    ]);
+
+    Bus::assertNotDispatched(UpdateVitoAgentConfigJob::class);
+});
+
+test('installing vito agent writes config with services', function () {
+    SSH::fake('Active: active');
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
+    Http::fake([
+        'https://api.github.com/repos/vitodeploy/agent/tags' => Http::response([['name' => '0.1.0']]),
+    ]);
+
+    $this->server->monitoring()?->delete();
+
+    app(Install::class)->install($this->server, [
+        'type' => 'monitoring',
+        'name' => 'vito-agent',
+        'version' => 'latest',
+    ]);
+
+    $config = json_decode(SSH::getUploadedContent(), true);
+    expect($config['url'])->not->toBeEmpty();
+    expect($config['secret'])->not->toBeEmpty();
+    $this->assertArrayNotHasKey('data_retention', $config);
+    expect(array_column($config['services'], 'unit'))->toContain('nginx');
+
+    Bus::assertNotDispatched(UpdateVitoAgentConfigJob::class);
+});

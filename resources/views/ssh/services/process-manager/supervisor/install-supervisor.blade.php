@@ -1,5 +1,5 @@
 sudo DEBIAN_FRONTEND=noninteractive apt-get install supervisor -y
 
-sudo service supervisor enable
+sudo systemctl enable supervisor
 
-sudo service supervisor start
+sudo systemctl start supervisor

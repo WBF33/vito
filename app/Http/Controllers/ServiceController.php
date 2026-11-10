@@ -2,20 +2,28 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Service\GetConfigFile;
+use App\Actions\Service\GetNetworking;
 use App\Actions\Service\Install;
 use App\Actions\Service\Manage;
+use App\Actions\Service\ManageNetworkingSecret;
+use App\Actions\Service\RefreshServices;
+use App\Actions\Service\ToggleNetworking;
 use App\Actions\Service\Uninstall;
-use App\Http\Resources\ServiceResource;
+use App\Actions\Service\UpdateConfigFile;
 use App\Models\Server;
 use App\Models\Service;
+use App\Tables\ServiceTable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response as HttpResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
 use Spatie\RouteAttributes\Attributes\Get;
 use Spatie\RouteAttributes\Attributes\Middleware;
+use Spatie\RouteAttributes\Attributes\Patch;
 use Spatie\RouteAttributes\Attributes\Post;
 use Spatie\RouteAttributes\Attributes\Prefix;
 
@@ -28,10 +36,9 @@ class ServiceController extends Controller
     {
         $this->authorize('viewAny', [Service::class, $server]);
 
-        $services = $server->services()->simplePaginate(config('web.pagination_size'));
-
         return Inertia::render('services/index', [
-            'services' => ServiceResource::collection($services),
+            'services' => ServiceTable::make($server->services())->simplePaginate(),
+            'refreshing' => RefreshServices::refreshing($server),
         ]);
     }
 
@@ -41,7 +48,7 @@ class ServiceController extends Controller
         $this->authorize('viewAny', [Service::class, $server]);
 
         $versions = [];
-        $services = $server->services()->where('type', $service)->get(['version']);
+        $services = $server->services()->where('type', $service)->latest('version')->get(['version']);
         /** @var Service $service */
         foreach ($services as $service) {
             $versions[] = $service->version;
@@ -86,6 +93,18 @@ class ServiceController extends Controller
         ]));
     }
 
+    #[Post('/{service}/reload', name: 'services.reload')]
+    public function reload(Server $server, Service $service): RedirectResponse
+    {
+        $this->authorize('reload', $service);
+
+        app(Manage::class)->reload($service);
+
+        return back()->with('success', __(':service is being reloaded.', [
+            'service' => $service->name,
+        ]));
+    }
+
     #[Post('/{service}/stop', name: 'services.stop')]
     public function stop(Server $server, Service $service): RedirectResponse
     {
@@ -122,6 +141,64 @@ class ServiceController extends Controller
         ]));
     }
 
+    #[Post('/refresh', name: 'services.refresh')]
+    public function refresh(Server $server): RedirectResponse
+    {
+        $this->authorize('refresh', [Service::class, $server]);
+
+        return back()->with('info', app(RefreshServices::class)->refresh($server)
+            ? __('Refreshing services…')
+            : __('A services refresh is already running.'));
+    }
+
+    #[Get('/{service}/networking', name: 'services.networking')]
+    public function networking(Server $server, Service $service): JsonResponse
+    {
+        $this->authorize('manageNetworking', $service);
+
+        return response()->json(app(GetNetworking::class)->get($service));
+    }
+
+    #[Post('/{service}/networking/enable', name: 'services.networking.enable')]
+    public function enableNetworking(Server $server, Service $service): HttpResponse
+    {
+        $this->authorize('manageNetworking', $service);
+
+        app(ToggleNetworking::class)->enable($service);
+
+        return response()->noContent();
+    }
+
+    #[Post('/{service}/networking/disable', name: 'services.networking.disable')]
+    public function disableNetworking(Server $server, Service $service): HttpResponse
+    {
+        $this->authorize('manageNetworking', $service);
+
+        app(ToggleNetworking::class)->disable($service);
+
+        return response()->noContent();
+    }
+
+    #[Post('/{service}/networking/secret', name: 'services.networking.secret.regenerate')]
+    public function regenerateNetworkingSecret(Server $server, Service $service): HttpResponse
+    {
+        $this->authorize('manageNetworking', $service);
+
+        app(ManageNetworkingSecret::class)->regenerate($service);
+
+        return response()->noContent();
+    }
+
+    #[Delete('/{service}/networking/secret', name: 'services.networking.secret.destroy')]
+    public function removeNetworkingSecret(Server $server, Service $service): HttpResponse
+    {
+        $this->authorize('manageNetworking', $service);
+
+        app(ManageNetworkingSecret::class)->remove($service);
+
+        return response()->noContent();
+    }
+
     #[Delete('/{service}', name: 'services.destroy')]
     public function destroy(Server $server, Service $service): RedirectResponse
     {
@@ -134,16 +211,25 @@ class ServiceController extends Controller
         ]));
     }
 
-    #[Get('/{service}/version', name: 'services.version')]
-    public function version(Server $server, Service $service): RedirectResponse
+    #[Get('/{service}/config', name: 'services.config')]
+    public function getConfig(Request $request, Server $server, Service $service): JsonResponse
     {
         $this->authorize('view', $service);
 
-        $service->installed_version = $service->handler()->version();
-        $service->save();
+        $content = app(GetConfigFile::class)->get($service, $request->input());
 
-        return back()->with('success', __('Fetched instaled version for :service', [
-            'service' => $service->name,
-        ]));
+        return response()->json([
+            'content' => $content,
+        ]);
+    }
+
+    #[Patch('/{service}/config', name: 'services.config.update')]
+    public function updateConfig(Request $request, Server $server, Service $service): RedirectResponse
+    {
+        $this->authorize('update', $service);
+
+        app(UpdateConfigFile::class)->update($service, $request->input());
+
+        return back()->with('success', __('Config file updated successfully.'));
     }
 }

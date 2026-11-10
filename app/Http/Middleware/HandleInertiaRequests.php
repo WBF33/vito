@@ -2,10 +2,13 @@
 
 namespace App\Http\Middleware;
 
+use App\Actions\Bootstrap\GetBootstrap;
+use App\Http\Resources\NetworkResource;
 use App\Http\Resources\ProjectResource;
 use App\Http\Resources\ServerResource;
 use App\Http\Resources\SiteResource;
 use App\Http\Resources\UserResource;
+use App\Models\Network;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
@@ -46,13 +49,16 @@ class HandleInertiaRequests extends Middleware
     {
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
 
+        $ssrEnabled = (bool) config('inertia.ssr.enabled');
+
         /** @var ?User $user */
         $user = $request->user();
-
-        // servers
-        $servers = [];
-        if ($user && $user->currentProject && $user->can('viewAny', [Server::class, $user->currentProject])) {
-            $servers = ServerResource::collection($user->currentProject->servers);
+        $currentProject = $user?->currentProject;
+        $canSeeCurrentProject = $user && $currentProject && $user->can('view', $currentProject);
+        if ($user && (! $currentProject || ! $canSeeCurrentProject)) {
+            $user->ensureHasDefaultProject();
+            $user->unsetRelation('currentProject');
+            $currentProject = $user->currentProject;
         }
 
         $data = [];
@@ -66,16 +72,28 @@ class HandleInertiaRequests extends Middleware
 
             $data['server'] = ServerResource::make($server);
 
-            // sites
-            $sites = [];
-            if ($user && $user->can('viewAny', [Site::class, $server])) {
-                $sites = SiteResource::collection($server->sites);
-            }
-
-            $data['server_sites'] = $sites;
-
             if ($request->route('site')) {
-                $data['site'] = SiteResource::make($request->route('site'));
+                /** @var Site $site */
+                $site = $request->route('site');
+                $site->load('hostedDomains.ssl', 'workers');
+                $data['site'] = SiteResource::make($site);
+            }
+        }
+
+        if ($request->route('network')) {
+            /** @var Network $network */
+            $network = $request->route('network');
+            if ($user && $user->can('view', $network)) {
+                if ($user->current_project_id !== $network->project_id) {
+                    $user->current_project_id = $network->project_id;
+                    $user->save();
+                    $user->unsetRelation('currentProject');
+                    $currentProject = $user->currentProject;
+                }
+
+                $data['network'] = fn () => NetworkResource::make(
+                    $network->load('serverProvider')->loadCount('servers')
+                );
             }
         }
 
@@ -84,44 +102,21 @@ class HandleInertiaRequests extends Middleware
             ...$data,
             'name' => config('app.name'),
             'version' => config('app.version'),
+            'env' => config('app.env'),
             'demo' => config('app.demo'),
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => $user ? [
                 'user' => UserResource::make($user->load('projects')),
-                'projects' => ProjectResource::collection($user->allProjects()->get()),
-                'currentProject' => ProjectResource::make($user->currentProject),
+                'currentProject' => ProjectResource::make($currentProject),
             ] : null,
-            'public_key_text' => __('servers.create.public_key_text', ['public_key' => get_public_key_content()]),
-            'project_servers' => $servers,
-            'configs' => [
-                'operating_systems' => config('core.operating_systems'),
-                'colors' => config('core.colors'),
-                'cronjob_intervals' => config('core.cronjob_intervals'),
-                'metrics_periods' => config('core.metrics_periods'),
-                'site' => [
-                    'types' => config('site.types'),
-                ],
-                'source_control' => [
-                    'providers' => config('source-control.providers'),
-                ],
-                'server_provider' => [
-                    'providers' => config('server-provider.providers'),
-                ],
-                'storage_provider' => [
-                    'providers' => config('storage-provider.providers'),
-                ],
-                'notification_channel' => [
-                    'providers' => config('notification-channel.providers'),
-                ],
-                'service' => [
-                    'services' => config('service.services'),
-                ],
-            ],
-            'ziggy' => fn (): array => [
-                ...(new Ziggy)->toArray(),
-                'location' => $request->url(),
-            ],
             'csrf_token' => csrf_token(),
+            'bootstrap_version' => app(GetBootstrap::class)->version(),
+            ...($ssrEnabled ? [
+                'ziggy' => fn (): array => [
+                    ...(new Ziggy)->toArray(),
+                    'location' => $request->url(),
+                ],
+            ] : []),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

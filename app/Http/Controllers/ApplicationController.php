@@ -3,25 +3,31 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Site\Deploy;
+use App\Actions\Site\GetEnv;
+use App\Actions\Site\ParseEnv;
 use App\Actions\Site\Rollback;
+use App\Actions\Site\StringifyEnv;
 use App\Actions\Site\UpdateDeploymentScript;
 use App\Actions\Site\UpdateEnv;
 use App\Actions\Site\UpdateLoadBalancer;
 use App\Exceptions\DeploymentScriptIsEmptyException;
 use App\Exceptions\FailedToDestroyGitHook;
+use App\Exceptions\ReverseProxyNotConfiguredException;
 use App\Exceptions\SourceControlIsNotConnected;
 use App\Exceptions\SSHError;
-use App\Http\Resources\DeploymentResource;
 use App\Http\Resources\DeploymentScriptResource;
 use App\Http\Resources\LoadBalancerServerResource;
-use App\Http\Resources\ServerLogResource;
+use App\Http\Resources\WorkerResource;
 use App\Models\Deployment;
 use App\Models\DeploymentScript;
 use App\Models\Server;
 use App\Models\Site;
+use App\SiteTypes\AbstractProxiedSiteType;
+use App\Tables\DeploymentTable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
@@ -46,13 +52,16 @@ class ApplicationController extends Controller
         $buildScript = $site->buildScript;
         $preFlightScript = $site->preFlightScript;
 
+        $type = $site->type();
+        $bootstrapWorker = $type instanceof AbstractProxiedSiteType ? $type->bootstrapWorker() : null;
+
         return Inertia::render('application/index', [
-            'logs' => ServerLogResource::collection($site->logs()->latest()->simplePaginate(config('web.pagination_size'))),
-            'deployments' => DeploymentResource::collection($site->deployments()->latest()->simplePaginate(config('web.pagination_size'))),
+            'deployments' => DeploymentTable::make($site->deployments())->paginate(),
             'deploymentScript' => new DeploymentScriptResource($deploymentScript),
             'buildScript' => $buildScript ? new DeploymentScriptResource($buildScript) : null,
             'preFlightScript' => $preFlightScript ? new DeploymentScriptResource($preFlightScript) : null,
             'loadBalancerServers' => LoadBalancerServerResource::collection($site->loadBalancerServers),
+            'worker' => $bootstrapWorker ? new WorkerResource($bootstrapWorker) : null,
         ]);
     }
 
@@ -68,6 +77,7 @@ class ApplicationController extends Controller
 
     /**
      * @throws DeploymentScriptIsEmptyException
+     * @throws ReverseProxyNotConfiguredException
      */
     #[Post('/deploy', name: 'application.deploy')]
     public function deploy(Server $server, Site $site): RedirectResponse
@@ -107,20 +117,48 @@ class ApplicationController extends Controller
         return back()->with('success', 'Deployment removed successfully.');
     }
 
+    /**
+     * @throws SSHError
+     * @throws ValidationException
+     */
     #[Get('/env', name: 'application.env')]
     public function env(Request $request, Server $server, Site $site): JsonResponse
     {
         $this->authorize('view', [$site, $server]);
 
-        if ($request->input('env')) {
-            $site->jsonUpdate('type_data', 'env_path', $request->input('env'), false);
+        $input = $request->input('env');
+        $path = is_string($input) && $input !== '' ? $input : null;
+        $canReveal = $request->user()->can('revealEnv', [$site, $server]);
+
+        if ($path !== null && $path !== $site->resolveEnvPath()) {
+            $this->authorize('update', [$site, $server]);
         }
 
-        $env = $site->getEnv();
+        $data = app(GetEnv::class)->get($site, $path, $canReveal);
 
-        return response()->json([
-            'env' => $env,
-        ]);
+        return response()->json([...$data, 'can_edit' => $canReveal]);
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    #[Post('/env/parse', name: 'application.parse-env')]
+    public function parseEnv(Request $request, Server $server, Site $site): JsonResponse
+    {
+        $this->authorize('view', [$site, $server]);
+
+        return response()->json(app(ParseEnv::class)->parse($request->all()));
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    #[Post('/env/stringify', name: 'application.stringify-env')]
+    public function stringifyEnv(Request $request, Server $server, Site $site): JsonResponse
+    {
+        $this->authorize('view', [$site, $server]);
+
+        return response()->json(app(StringifyEnv::class)->stringify($request->all()));
     }
 
     /**

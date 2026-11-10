@@ -2,10 +2,10 @@
 
 namespace App\Services\Webserver;
 
+use App\Enums\SslMethod;
 use App\Models\Site;
 use App\Services\AbstractService;
 use Closure;
-use InvalidArgumentException;
 
 abstract class AbstractWebserver extends AbstractService implements Webserver
 {
@@ -39,63 +39,36 @@ abstract class AbstractWebserver extends AbstractService implements Webserver
         ];
     }
 
-    /**
-     * @param  array<string, string>  $replace  replace blocks
-     * @param  array<int, string>  $regenerate  regenerates the blocks
-     * @param  array<string, string>  $append  appends to the blocks
-     */
-    protected function getUpdatedVHost(Site $site, string $vhost, array $replace = [], array $regenerate = [], array $append = []): string
+    public function createsSiteSSLs(): bool
     {
-        foreach ($replace as $block => $replacement) {
-            $vhost = preg_replace(
-                '/#\['.$block.'](.*?)#\[\/'.$block.']/s',
-                $replacement,
-                $vhost
-            );
-        }
+        $name = static::id();
 
-        foreach ($regenerate as $block) {
-            $vhost = preg_replace(
-                '/#\['.$block.'](.*?)#\[\/'.$block.']/s',
-                $this->generateVhost($site, $block),
-                $vhost
-            );
-        }
-
-        foreach ($append as $block => $content) {
-            /**
-             * #[block]
-             * content
-             * content
-             * content
-             * content
-             * --append-here--
-             * #[/block]
-             */
-            $vhost = preg_replace(
-                '/(#\['.$block.'](.*?)\n)(?=#\[\/'.$block.'])/s',
-                "\$1$content\n",
-                $vhost
-            );
-        }
-
-        return $vhost;
+        return (bool) data_get(config("service.services.{$name}.data"), 'creates_site_ssls', true);
     }
 
-    protected function generateVhost(Site $site, ?string $block = null): string
+    public function siteDefaults(): array
     {
-        $viewPath = 'ssh.services.webserver.'.$this::id().'.vhost-blocks.'.$block;
-        if ($block) {
-            if (! view()->exists($viewPath)) {
-                throw new InvalidArgumentException("View for block '{$block}' does not exist.");
-            }
-            $vhost = view($viewPath, [
-                'site' => $site,
-            ]);
-        } else {
-            $vhost = $site->type()->vhost($this::id());
-        }
-
-        return format_nginx_config($vhost);
+        return [
+            'ssl_enabled' => true,
+        ];
     }
+
+    public function canConfigureSSL(): bool
+    {
+        return true;
+    }
+
+    public function allowedSslMethods(): ?array
+    {
+        return null;
+    }
+
+    public function defaultSslMethod(): SslMethod
+    {
+        return SslMethod::NONE;
+    }
+
+    abstract public function generateVhost(Site $site, ?string $template = null): string;
+
+    abstract public function deploySplash(): void;
 }

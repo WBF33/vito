@@ -2,29 +2,32 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 use App\Traits\HasTimezoneTimestamps;
 use Carbon\Carbon;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 /**
  * @property int $id
- * @property int $user_id
  * @property string $name
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property User $user
  * @property Collection<int, Server> $servers
  * @property Collection<int, Site> $sites
- * @property Collection<int, User> $users
+ * @property Collection<int, Backup> $backups
+ * @property Collection<int, UserProject> $users
  * @property Collection<int, NotificationChannel> $notificationChannels
  * @property Collection<int, SourceControl> $sourceControls
+ * @property Collection<int, User> $registeredUsers
+ * @property Collection<int, Workflow> $workflows
+ * @property Collection<int, Domain> $domains
+ * @property Collection<int, Network> $networks
  */
 class Project extends Model
 {
@@ -34,7 +37,6 @@ class Project extends Model
     use HasTimezoneTimestamps;
 
     protected $fillable = [
-        'user_id',
         'name',
     ];
 
@@ -48,14 +50,6 @@ class Project extends Model
                 $server->delete();
             });
         });
-    }
-
-    /**
-     * @return BelongsTo<User, covariant $this>
-     */
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class);
     }
 
     /**
@@ -75,6 +69,14 @@ class Project extends Model
     }
 
     /**
+     * @return HasManyThrough<Backup, Server, covariant $this>
+     */
+    public function backups(): HasManyThrough
+    {
+        return $this->hasManyThrough(Backup::class, Server::class);
+    }
+
+    /**
      * @return HasMany<NotificationChannel, covariant $this>
      */
     public function notificationChannels(): HasMany
@@ -82,12 +84,9 @@ class Project extends Model
         return $this->hasMany(NotificationChannel::class);
     }
 
-    /**
-     * @return BelongsToMany<User, covariant $this>
-     */
-    public function users(): BelongsToMany
+    public function users(): HasMany
     {
-        return $this->belongsToMany(User::class, 'user_project')->withTimestamps();
+        return $this->hasMany(UserProject::class, 'project_id');
     }
 
     /**
@@ -98,11 +97,42 @@ class Project extends Model
         return $this->hasMany(SourceControl::class);
     }
 
-    /**
-     * @return HasMany<Tag, covariant $this>
-     */
-    public function tags(): HasMany
+    public function registeredUsers(): HasManyThrough
     {
-        return $this->hasMany(Tag::class);
+        return $this->hasManyThrough(User::class, UserProject::class, 'project_id', 'id', 'id', 'user_id');
+    }
+
+    public function hasRoles(User $user, array $roles): bool
+    {
+        return $this->users()
+            ->where('user_id', $user->id)
+            ->whereIn('role', $roles)
+            ->exists();
+    }
+
+    public function role(User $user): UserRole
+    {
+        /** @var UserProject $user */
+        $user = $this->users()->where('user_id', $user->id)->firstOrFail();
+
+        return $user->role;
+    }
+
+    public function workflows(): HasMany
+    {
+        return $this->hasMany(Workflow::class);
+    }
+
+    public function domains(): HasMany
+    {
+        return $this->hasMany(Domain::class);
+    }
+
+    /**
+     * @return HasMany<Network, covariant $this>
+     */
+    public function networks(): HasMany
+    {
+        return $this->hasMany(Network::class);
     }
 }

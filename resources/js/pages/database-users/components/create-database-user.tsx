@@ -17,20 +17,24 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import InputError from '@/components/ui/input-error';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type CreateForm = {
   username: string;
   password: string;
   remote: boolean;
   host: string;
+  permission: string;
 };
 
 export default function CreateDatabaseUser({
   server,
+  usesHost = true,
   onDatabaseUserCreated,
   children,
 }: {
   server: number;
+  usesHost?: boolean;
   onDatabaseUserCreated?: () => void;
   children: ReactNode;
 }) {
@@ -41,6 +45,7 @@ export default function CreateDatabaseUser({
     password: '',
     remote: false,
     host: '',
+    permission: 'admin',
   });
 
   const submit = (e: FormEvent) => {
@@ -93,18 +98,36 @@ export default function CreateDatabaseUser({
               <InputError message={form.errors.password} />
             </FormField>
             <FormField>
-              <div className="flex items-center space-x-3">
-                <Checkbox id="remote" name="remote" checked={form.data.remote} onClick={() => form.setData('remote', !form.data.remote)} />
-                <Label htmlFor="remote">Allow remote connection</Label>
-              </div>
-              <InputError message={form.errors.remote} />
+              <Label htmlFor="permission">Permission</Label>
+              <Select value={form.data.permission} onValueChange={(value) => form.setData('permission', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select permission" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin (Full Access)</SelectItem>
+                  <SelectItem value="write">Write (No Drop/Truncate)</SelectItem>
+                  <SelectItem value="read">Read Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <InputError message={form.errors.permission} />
             </FormField>
-            {form.data.remote && (
-              <FormField>
-                <Label htmlFor="host">Allow connection from (% for all)</Label>
-                <Input type="text" id="host" name="host" value={form.data.host} onChange={(e) => form.setData('host', e.target.value)} />
-                <InputError message={form.errors.host} />
-              </FormField>
+            {usesHost && (
+              <>
+                <FormField>
+                  <div className="flex items-center space-x-3">
+                    <Checkbox id="remote" name="remote" checked={form.data.remote} onClick={() => form.setData('remote', !form.data.remote)} />
+                    <Label htmlFor="remote">Allow remote connection</Label>
+                  </div>
+                  <InputError message={form.errors.remote} />
+                </FormField>
+                {form.data.remote && (
+                  <FormField>
+                    <Label htmlFor="host">Allow connection from (% for all)</Label>
+                    <Input type="text" id="host" name="host" value={form.data.host} onChange={(e) => form.setData('host', e.target.value)} />
+                    <InputError message={form.errors.host} />
+                  </FormField>
+                )}
+              </>
             )}
           </FormFields>
         </Form>
@@ -114,7 +137,7 @@ export default function CreateDatabaseUser({
               Cancel
             </Button>
           </DialogClose>
-          <Button type="button" onClick={submit} disabled={form.processing}>
+          <Button form="create-database-user-form" type="submit" disabled={form.processing}>
             {form.processing && <LoaderCircle className="animate-spin" />}
             Create
           </Button>

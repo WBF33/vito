@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Actions\Service\Manage;
 use App\Enums\ServiceStatus;
 use App\Exceptions\ServiceInstallationFailed;
+use App\Services\Database\Database;
 use App\Services\Firewall\Firewall;
 use App\Services\PHP\PHP;
 use App\Services\ProcessManager\ProcessManager;
@@ -18,16 +19,19 @@ use InvalidArgumentException;
 
 /**
  * @property int $server_id
+ * @property ?int $log_id
  * @property string $type
- * @property array<string, mixed> $type_data
+ * @property ?array<string, mixed> $type_data
+ * @property ?string $secret
  * @property string $name
  * @property string $version
  * @property string $installed_version
  * @property string $unit
  * @property string $logs
- * @property string $status
+ * @property ServiceStatus $status
  * @property bool $is_default
  * @property Server $server
+ * @property ?ServerLog $log
  */
 class Service extends AbstractModel
 {
@@ -36,6 +40,7 @@ class Service extends AbstractModel
 
     protected $fillable = [
         'server_id',
+        'log_id',
         'type',
         'type_data',
         'name',
@@ -49,26 +54,15 @@ class Service extends AbstractModel
 
     protected $casts = [
         'server_id' => 'integer',
+        'log_id' => 'integer',
         'type_data' => 'json',
+        'secret' => 'encrypted',
         'is_default' => 'boolean',
+        'status' => ServiceStatus::class,
     ];
 
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        ServiceStatus::READY => 'success',
-        ServiceStatus::INSTALLING => 'warning',
-        ServiceStatus::INSTALLATION_FAILED => 'danger',
-        ServiceStatus::UNINSTALLING => 'warning',
-        ServiceStatus::FAILED => 'danger',
-        ServiceStatus::STARTING => 'warning',
-        ServiceStatus::STOPPING => 'warning',
-        ServiceStatus::RESTARTING => 'warning',
-        ServiceStatus::STOPPED => 'danger',
-        ServiceStatus::ENABLING => 'warning',
-        ServiceStatus::DISABLING => 'warning',
-        ServiceStatus::DISABLED => 'gray',
+    protected $hidden = [
+        'secret',
     ];
 
     /**
@@ -79,7 +73,20 @@ class Service extends AbstractModel
         return $this->belongsTo(Server::class);
     }
 
-    public function handler(): ServiceInterface|Webserver|PHP|Firewall|\App\Services\Database\Database|ProcessManager
+    /**
+     * @return BelongsTo<ServerLog, covariant $this>
+     */
+    public function log(): BelongsTo
+    {
+        return $this->belongsTo(ServerLog::class, 'log_id');
+    }
+
+    public function hasHandler(): bool
+    {
+        return (bool) config("service.services.{$this->name}.handler");
+    }
+
+    public function handler(): ServiceInterface|Webserver|PHP|Firewall|Database|ProcessManager
     {
         $name = $this->name;
         $handler = config("service.services.$name.handler");
@@ -119,6 +126,11 @@ class Service extends AbstractModel
         $this->handler()->unit() && app(Manage::class)->restart($this);
     }
 
+    public function reload(): void
+    {
+        $this->handler()->unit() && app(Manage::class)->reload($this);
+    }
+
     public function enable(): void
     {
         $this->handler()->unit() && app(Manage::class)->enable($this);
@@ -127,5 +139,19 @@ class Service extends AbstractModel
     public function disable(): void
     {
         $this->handler()->unit() && app(Manage::class)->disable($this);
+    }
+
+    public function newLog(): ServerLog
+    {
+
+        $serverLog = ServerLog::newLog(
+            $this->server,
+            'install-'.$this->name.'-'.$this->version
+        );
+        $serverLog->save();
+        $this->log_id = $serverLog->id;
+        $this->save();
+
+        return $serverLog;
     }
 }

@@ -7,6 +7,7 @@ use App\Models\DatabaseUser;
 use App\Models\Server;
 use App\Models\Service;
 use App\Services\Database\Database;
+use Closure;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -21,14 +22,15 @@ class CreateDatabaseUser
      */
     public function create(Server $server, array $input, array $links = []): DatabaseUser
     {
-        Validator::make($input, self::rules($server, $input))->validate();
+        $this->validate($server, $input);
 
         $databaseUser = new DatabaseUser([
             'server_id' => $server->id,
             'username' => $input['username'],
             'password' => $input['password'],
-            'host' => (isset($input['remote']) && $input['remote']) || isset($input['host']) ? $input['host'] : 'localhost',
+            'host' => $this->resolveHost($input),
             'databases' => $links,
+            'permission' => $input['permission'] ?? 'admin',
         ]);
 
         /** @var Service $service */
@@ -45,35 +47,59 @@ class CreateDatabaseUser
         $databaseUser->save();
 
         if (count($links) > 0) {
-            app(LinkUser::class)->link($databaseUser, ['databases' => $links]);
+            app(LinkUser::class)->link($databaseUser, [
+                'databases' => $links,
+            ]);
         }
 
         return $databaseUser;
     }
 
-    /**
-     * @param  array<string, mixed>  $input
-     * @return array<string, mixed>
-     *
-     * @throws ValidationException
-     */
-    public static function rules(Server $server, array $input): array
+    private function validate(Server $server, array $input): void
     {
+        /** @var Database $handler */
+        $handler = $server->database()->handler();
+        $host = $this->resolveHost($input);
+
         $rules = [
             'username' => [
                 'required',
                 'alpha_dash',
-                Rule::unique('database_users', 'username')->where('server_id', $server->id),
+                function (string $attribute, mixed $value, Closure $fail) use ($handler, $server, $host): void {
+                    if ($handler->databaseUserExists($server, (string) $value, $host)) {
+                        $fail(__('A database user with this username and host already exists.'));
+                    }
+                },
             ],
             'password' => [
                 'required',
                 'min:6',
             ],
+            'permission' => [
+                'nullable',
+                Rule::in(['read', 'write', 'admin']),
+            ],
         ];
-        if (isset($input['remote']) && $input['remote']) {
-            $rules['host'] = 'required';
+
+        if ($handler->usesHost()) {
+            $rules['host'] = [
+                isset($input['remote']) && $input['remote'] ? 'required' : 'nullable',
+                'regex:/^[A-Za-z0-9%._:\-]*$/',
+            ];
         }
 
-        return $rules;
+        Validator::make($input, $rules)->validate();
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
+    private function resolveHost(array $input): string
+    {
+        if (! empty($input['host'])) {
+            return $input['host'];
+        }
+
+        return ! empty($input['remote']) ? '%' : 'localhost';
     }
 }

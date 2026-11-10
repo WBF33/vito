@@ -30,7 +30,7 @@
             }
         </style>
 
-        <title inertia>{{ config('app.name', 'Laravel') }}</title>
+        <title data-inertia>{{ config('app.name', 'Laravel') }}</title>
 
         <link rel="icon" href="{{ asset('favicon/favicon-96x96.png') }}" sizes="any" />
         <link rel="apple-touch-icon" href="{{ asset('favicon/apple-icon.png') }}" />
@@ -38,7 +38,7 @@
         <link rel="preconnect" href="https://fonts.bunny.net" />
         <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
 
-        @routes
+        <script src="{{ app(\App\Actions\Ziggy\GetZiggyRoutes::class)->url() }}" defer></script>
         @viteReactRefresh
         @vite(['resources/js/app.tsx', "resources/js/pages/{$page['component']}.tsx"])
         @inertiaHead

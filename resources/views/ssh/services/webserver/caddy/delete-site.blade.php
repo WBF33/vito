@@ -1,4 +1,4 @@
-rm -rf {{ $path }}
+sudo rm -rf {{ $path }}
 
 sudo rm /etc/caddy/sites-available/{{ $domain }}
 

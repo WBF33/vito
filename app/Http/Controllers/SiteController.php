@@ -3,13 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Actions\Site\CreateSite;
+use App\Actions\Site\DisableSsl;
+use App\Actions\Site\EnableSsl;
+use App\Actions\Site\GetIsolatedUsers;
+use App\Actions\Site\GetSites;
+use App\Actions\Site\RetrySite;
 use App\Helpers\QueryBuilder;
 use App\Http\Resources\ServerLogResource;
 use App\Http\Resources\SiteResource;
 use App\Models\Server;
 use App\Models\Site;
+use App\Tables\SiteTable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Support\Facades\URL;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -24,15 +32,10 @@ class SiteController extends Controller
     #[Get('/sites', name: 'sites.all')]
     public function index(): Response
     {
-        $sites = user()->currentProject->sites()->with('server')->latest();
-
-        $sites = QueryBuilder::for($sites)
-            ->searchableFields(['domain'])
-            ->query()
-            ->simplePaginate(config('web.pagination_size'), pageName: 'sitesPage');
+        $this->authorize('viewAny', user()->currentProject);
 
         return Inertia::render('sites/index', [
-            'sites' => SiteResource::collection($sites),
+            'sites' => SiteTable::make(user()->currentProject->sites())->simplePaginate(),
         ]);
     }
 
@@ -41,15 +44,27 @@ class SiteController extends Controller
     {
         $this->authorize('viewAny', [Site::class, $server]);
 
-        $sites = $server->sites()->latest();
-        $sites = QueryBuilder::for($sites)
-            ->searchableFields(['domain'])
-            ->query()
-            ->simplePaginate(config('web.pagination_size'), pageName: 'sitesPage');
-
         return Inertia::render('sites/index', [
-            'sites' => SiteResource::collection($sites),
+            'sites' => SiteTable::make($server->sites())->forServer($server)->simplePaginate(),
         ]);
+    }
+
+    #[Get('/servers/{server}/sites-json', name: 'sites.json')]
+    public function json(Request $request, Server $server): ResourceCollection
+    {
+        $this->authorize('viewAny', [Site::class, $server]);
+
+        $sites = app(GetSites::class)->get($server, $request->input(), 10);
+
+        return SiteResource::collection($sites);
+    }
+
+    #[Get('/servers/{server}/isolated-users', name: 'sites.isolated-users')]
+    public function isolatedUsers(Server $server): JsonResponse
+    {
+        $this->authorize('viewAny', [Site::class, $server]);
+
+        return response()->json(app(GetIsolatedUsers::class)->get($server));
     }
 
     /**
@@ -84,6 +99,39 @@ class SiteController extends Controller
         }
 
         return redirect()->route('application', ['server' => $server->id, 'site' => $site->id]);
+    }
+
+    #[Post('/servers/{server}/sites/{site}/retry', name: 'sites.retry')]
+    public function retry(Server $server, Site $site): RedirectResponse
+    {
+        $this->authorize('update', [$site, $server]);
+
+        app(RetrySite::class)->retry($site);
+
+        return back()
+            ->with('info', 'Retrying site installation...');
+    }
+
+    #[Post('/servers/{server}/sites/{site}/enable-ssl', name: 'sites.enable-ssl')]
+    public function enableSsl(Server $server, Site $site): RedirectResponse
+    {
+        $this->authorize('update', [$site, $server]);
+
+        app(EnableSsl::class)->enable($site);
+
+        return back()
+            ->with('success', 'SSL enabled successfully.');
+    }
+
+    #[Post('/servers/{server}/sites/{site}/disable-ssl', name: 'sites.disable-ssl')]
+    public function disableSsl(Server $server, Site $site): RedirectResponse
+    {
+        $this->authorize('update', [$site, $server]);
+
+        app(DisableSsl::class)->disable($site);
+
+        return back()
+            ->with('success', 'SSL disabled successfully.');
     }
 
     #[Get('/servers/{server}/sites/{site}/logs', name: 'sites.logs')]

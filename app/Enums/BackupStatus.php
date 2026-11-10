@@ -2,13 +2,19 @@
 
 namespace App\Enums;
 
-final class BackupStatus
+use App\Contracts\VitoEnum;
+
+enum BackupStatus: string implements VitoEnum
 {
-    const string RUNNING = 'running';
+    case DELETING = 'deleting';
 
-    const string FAILED = 'failed';
+    public function getColor(): string
+    {
+        return 'warning';
+    }
 
-    const string DELETING = 'deleting';
-
-    const string STOPPED = 'stopped';
+    public function getText(): string
+    {
+        return $this->value;
+    }
 }

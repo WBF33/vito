@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
+use App\Traits\HasProjectScopedQueries;
 use Database\Factories\StorageProviderFactory;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -20,6 +20,8 @@ class StorageProvider extends AbstractModel
 {
     /** @use HasFactory<StorageProviderFactory> */
     use HasFactory;
+
+    use HasProjectScopedQueries;
 
     protected $fillable = [
         'user_id',
@@ -53,6 +55,22 @@ class StorageProvider extends AbstractModel
         return $provider;
     }
 
+    public function hasProviderHandler(): bool
+    {
+        $providerClass = config('storage-provider.providers.'.$this->provider.'.handler');
+
+        return is_string($providerClass) && is_a($providerClass, \App\StorageProviders\StorageProvider::class, true);
+    }
+
+    public function editableDataFor(?User $user): object
+    {
+        if (! $this->hasProviderHandler() || ! $user?->can('revealCredentials', $this)) {
+            return (object) [];
+        }
+
+        return (object) $this->provider()->editableData();
+    }
+
     /**
      * @return HasMany<Backup, covariant $this>
      */
@@ -67,19 +85,5 @@ class StorageProvider extends AbstractModel
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
-    }
-
-    /**
-     * @return Builder<StorageProvider>
-     */
-    public static function getByProjectId(int $projectId): Builder
-    {
-        /** @var Builder<StorageProvider> $query */
-        $query = static::query();
-
-        return $query
-            ->where(function (Builder $query) use ($projectId): void {
-                $query->where('project_id', $projectId)->orWhereNull('project_id');
-            });
     }
 }

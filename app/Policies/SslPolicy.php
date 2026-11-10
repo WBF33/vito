@@ -3,53 +3,46 @@
 namespace App\Policies;
 
 use App\Models\Server;
-use App\Models\Site;
 use App\Models\Ssl;
 use App\Models\User;
+use App\Traits\HasRolePolicies;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class SslPolicy
 {
     use HandlesAuthorization;
+    use HasRolePolicies;
 
-    public function viewAny(User $user, Site $site, Server $server): bool
+    public function viewAny(User $user, Server $server): bool
     {
-        return ($user->isAdmin() || $server->project->users->contains($user)) &&
-            $server->isReady() &&
-            $site->isReady();
+        return $this->hasReadAccess($user, $server->project) &&
+            $server->isReady();
     }
 
-    public function view(User $user, Ssl $ssl, Site $site, Server $server): bool
+    public function create(User $user, Server $server): bool
     {
-        return ($user->isAdmin() || $server->project->users->contains($user)) &&
-            $site->server_id === $server->id &&
-            $server->isReady() &&
-            $site->isReady() &&
-            $ssl->site_id === $site->id;
+        return $this->hasWriteAccess($user, $server->project) &&
+            $server->isReady();
     }
 
-    public function create(User $user, Site $site, Server $server): bool
+    public function downloadCsr(User $user, Ssl $ssl, Server $server): bool
     {
-        return ($user->isAdmin() || $server->project->users->contains($user)) &&
+        return $this->hasReadAccess($user, $server->project) &&
             $server->isReady() &&
-            $site->isReady();
+            $ssl->server_id === $server->id;
     }
 
-    public function update(User $user, Ssl $ssl, Site $site, Server $server): bool
+    public function delete(User $user, Ssl $ssl, Server $server): bool
     {
-        return ($user->isAdmin() || $server->project->users->contains($user)) &&
-            $site->server_id === $server->id &&
+        return $this->hasWriteAccess($user, $server->project) &&
             $server->isReady() &&
-            $site->isReady() &&
-            $ssl->site_id === $site->id;
+            $ssl->server_id === $server->id;
     }
 
-    public function delete(User $user, Ssl $ssl, Site $site, Server $server): bool
+    public function activate(User $user, Ssl $ssl, Server $server): bool
     {
-        return ($user->isAdmin() || $server->project->users->contains($user)) &&
-            $site->server_id === $server->id &&
+        return $this->hasWriteAccess($user, $server->project) &&
             $server->isReady() &&
-            $site->isReady() &&
-            $ssl->site_id === $site->id;
+            $ssl->server_id === $server->id;
     }
 }

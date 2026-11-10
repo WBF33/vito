@@ -9,14 +9,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ServerProviderResource;
 use App\Models\Project;
 use App\Models\ServerProvider;
-use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
-use Knuckles\Scribe\Attributes\BodyParam;
-use Knuckles\Scribe\Attributes\Endpoint;
-use Knuckles\Scribe\Attributes\Group;
-use Knuckles\Scribe\Attributes\Response;
-use Knuckles\Scribe\Attributes\ResponseFromApiResource;
+use Illuminate\Http\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
 use Spatie\RouteAttributes\Attributes\Get;
 use Spatie\RouteAttributes\Attributes\Middleware;
@@ -24,45 +20,47 @@ use Spatie\RouteAttributes\Attributes\Post;
 use Spatie\RouteAttributes\Attributes\Prefix;
 use Spatie\RouteAttributes\Attributes\Put;
 
+/**
+ * @deprecated Use UserServerProviderController instead. This controller will be removed in a future version.
+ */
 #[Prefix('api/projects/{project}/server-providers')]
 #[Middleware(['auth:sanctum', 'can-see-project'])]
-#[Group(name: 'server-providers')]
 class ServerProviderController extends Controller
 {
+    /**
+     * @deprecated Use GET /api/server-providers instead
+     */
     #[Get('/', name: 'api.projects.server-providers', middleware: 'ability:read')]
-    #[Endpoint(title: 'list')]
-    #[ResponseFromApiResource(ServerProviderResource::class, ServerProvider::class, collection: true, paginate: 25)]
     public function index(Project $project): ResourceCollection
     {
         $this->authorize('viewAny', ServerProvider::class);
 
-        $serverProviders = ServerProvider::getByProjectId($project->id)->simplePaginate(25);
+        $serverProviders = ServerProvider::getByProjectId($project->id, user())->simplePaginate(25);
 
         return ServerProviderResource::collection($serverProviders);
     }
 
+    /**
+     * @deprecated Use POST /api/server-providers instead
+     */
     #[Post('/', name: 'api.projects.server-providers.create', middleware: 'ability:write')]
-    #[Endpoint(title: 'create')]
-    #[BodyParam(name: 'provider', description: 'The provider (aws, linode, hetzner, digitalocean, vultr, ...)', required: true)]
-    #[BodyParam(name: 'name', description: 'The name of the server provider.', required: true)]
-    #[BodyParam(name: 'token', description: 'The token if provider requires api token')]
-    #[BodyParam(name: 'key', description: 'The key if provider requires key')]
-    #[BodyParam(name: 'secret', description: 'The secret if provider requires key')]
-    #[ResponseFromApiResource(ServerProviderResource::class, ServerProvider::class)]
     public function create(Request $request, Project $project): ServerProviderResource
     {
         $this->authorize('create', ServerProvider::class);
 
-        /** @var User $user */
-        $user = auth()->user();
-        $serverProvider = app(CreateServerProvider::class)->create($user, $project, $request->all());
+        $projectId = $request->boolean('global') ? null : $project->id;
+
+        $this->authorize('assignToProject', [ServerProvider::class, $projectId]);
+
+        $serverProvider = app(CreateServerProvider::class)->create(user(), $request->all(), $projectId);
 
         return new ServerProviderResource($serverProvider);
     }
 
+    /**
+     * @deprecated Use GET /api/server-providers/{serverProvider} instead
+     */
     #[Get('{serverProvider}', name: 'api.projects.server-providers.show', middleware: 'ability:read')]
-    #[Endpoint(title: 'show')]
-    #[ResponseFromApiResource(ServerProviderResource::class, ServerProvider::class)]
     public function show(Project $project, ServerProvider $serverProvider): ServerProviderResource
     {
         $this->authorize('view', $serverProvider);
@@ -72,26 +70,56 @@ class ServerProviderController extends Controller
         return new ServerProviderResource($serverProvider);
     }
 
+    /**
+     * @deprecated Use PUT /api/server-providers/{serverProvider} instead
+     */
     #[Put('{serverProvider}', name: 'api.projects.server-providers.update', middleware: 'ability:write')]
-    #[Endpoint(title: 'update')]
-    #[BodyParam(name: 'name', description: 'The name of the server provider.', required: true)]
-    #[BodyParam(name: 'global', description: 'Accessible in all projects', enum: [true, false])]
-    #[ResponseFromApiResource(ServerProviderResource::class, ServerProvider::class)]
     public function update(Request $request, Project $project, ServerProvider $serverProvider): ServerProviderResource
     {
         $this->authorize('update', $serverProvider);
 
         $this->validateRoute($project, $serverProvider);
 
-        $serverProvider = app(EditServerProvider::class)->edit($serverProvider, $project, $request->all());
+        $projectId = $request->boolean('global') ? null : $project->id;
+
+        $this->authorize('assignToProject', [ServerProvider::class, $projectId]);
+
+        $serverProvider = app(EditServerProvider::class)->edit($serverProvider, $request->all(), $projectId);
 
         return new ServerProviderResource($serverProvider);
     }
 
+    /**
+     * @deprecated Use GET /api/server-providers/{serverProvider}/regions instead
+     */
+    #[Get('{serverProvider}/regions', name: 'api.projects.server-providers.regions', middleware: 'ability:read')]
+    public function regions(Project $project, ServerProvider $serverProvider): JsonResponse
+    {
+        $this->authorize('view', $serverProvider);
+
+        $this->validateRoute($project, $serverProvider);
+
+        return response()->json($serverProvider->provider()->regions());
+    }
+
+    /**
+     * @deprecated Use GET /api/server-providers/{serverProvider}/regions/{region}/plans instead
+     */
+    #[Get('{serverProvider}/regions/{region}/plans', name: 'api.projects.server-providers.plans', middleware: 'ability:read')]
+    public function plans(Project $project, ServerProvider $serverProvider, string $region): JsonResponse
+    {
+        $this->authorize('view', $serverProvider);
+
+        $this->validateRoute($project, $serverProvider);
+
+        return response()->json($serverProvider->provider()->availablePlans($region));
+    }
+
+    /**
+     * @deprecated Use DELETE /api/server-providers/{serverProvider} instead
+     */
     #[Delete('{serverProvider}', name: 'api.projects.server-providers.delete', middleware: 'ability:write')]
-    #[Endpoint(title: 'delete')]
-    #[Response(status: 204)]
-    public function delete(Project $project, ServerProvider $serverProvider): \Illuminate\Http\Response
+    public function delete(Project $project, ServerProvider $serverProvider): Response
     {
         $this->authorize('delete', $serverProvider);
 

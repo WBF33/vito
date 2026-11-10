@@ -2,7 +2,7 @@
 
 namespace App\SiteTypes;
 
-use Illuminate\Contracts\View\View;
+use App\Models\Deployment;
 
 interface SiteType
 {
@@ -36,10 +36,31 @@ interface SiteType
 
     public function install(): void;
 
+    public function assertReadyToDeploy(): void;
+
     /**
      * @return array<array<string, string>>
      */
     public function baseCommands(): array;
 
-    public function vhost(string $webserver): string|View;
+    /**
+     * @return array<string, mixed>
+     */
+    public function vhostData(): array;
+
+    /**
+     * @return string[]|null
+     */
+    public function supportedWebservers(): ?array;
+
+    public function vhostTemplate(string $webserver): ?string;
+
+    /**
+     * @return array<string, string>
+     */
+    public function deploymentEnvironment(): array;
+
+    public function afterDeploy(Deployment $deployment): void;
+
+    public function defaultDeploymentScript(): string;
 }

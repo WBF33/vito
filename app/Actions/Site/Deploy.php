@@ -2,23 +2,27 @@
 
 namespace App\Actions\Site;
 
+use App\DTOs\SocketEventDTO;
 use App\Enums\DeploymentStatus;
+use App\Events\SocketEvent;
 use App\Exceptions\DeploymentScriptIsEmptyException;
-use App\Facades\Notifier;
+use App\Exceptions\ReverseProxyNotConfiguredException;
+use App\Http\Resources\DeploymentResource;
+use App\Jobs\Site\DeployJob;
 use App\Models\Deployment;
 use App\Models\ServerLog;
 use App\Models\Site;
-use App\Notifications\DeploymentCompleted;
-use App\Services\ProcessManager\ProcessManager;
-use App\SSH\OS\Git;
 
 class Deploy
 {
     /**
      * @throws DeploymentScriptIsEmptyException
+     * @throws ReverseProxyNotConfiguredException
      */
     public function run(Site $site, bool $modern = true): Deployment
     {
+        $site->type()->assertReadyToDeploy();
+
         if ($site->sourceControl) {
             $site->sourceControl->getRepo($site->repository);
         }
@@ -53,34 +57,22 @@ class Deploy
         return $this->deployModern($site, $deployment, $log);
     }
 
+    private function broadcastDeploymentCreated(Site $site, Deployment $deployment): void
+    {
+        $deployment->loadMissing('log');
+
+        SocketEvent::dispatch(new SocketEventDTO(
+            projectId: $site->server->project_id,
+            type: 'deployment.created',
+            data: new DeploymentResource($deployment),
+        ));
+    }
+
     private function deployClassic(Site $site, Deployment $deployment, ServerLog $log): Deployment
     {
-        dispatch(function () use ($site, $deployment, $log): void {
-            $site->server->os()->runScript(
-                path: $site->path,
-                script: $site->deploymentScript->content,
-                serverLog: $log,
-                user: $site->user,
-                variables: $site->environmentVariables($deployment),
-                aliases: $site->environmentAliases(),
-            );
+        dispatch(new DeployJob($deployment, false));
 
-            if ($site->deploymentScript->shouldRestartWorkers()) {
-                /** @var ProcessManager $processManager */
-                $processManager = $site->server->processManager()->handler();
-                $processManager->restartAll($site->id);
-            }
-
-            $deployment->status = DeploymentStatus::FINISHED;
-            $deployment->save();
-            $deployment->activate();
-            Notifier::send($site, new DeploymentCompleted($deployment, $site));
-        })->catch(function () use ($deployment, $site): void {
-            $deployment->status = DeploymentStatus::FAILED;
-            $deployment->save();
-            $deployment->activate();
-            Notifier::send($site, new DeploymentCompleted($deployment, $site));
-        })->onQueue('ssh-unique');
+        $this->broadcastDeploymentCreated($site, $deployment);
 
         return $deployment;
     }
@@ -89,79 +81,10 @@ class Deploy
     {
         $deployment->release = now()->format('YmdHis');
         $deployment->save();
-        /** @var ?Deployment $current */
-        $current = $site->deployments()->where('active', 1)->whereNotNull('release')->first();
 
-        dispatch(function () use ($site, $deployment, $log): void {
-            app(Git::class)->clone($site, $deployment->path());
+        dispatch(new DeployJob($deployment, true));
 
-            // build
-            $site->server->os()->runScript(
-                path: $deployment->path(),
-                script: $site->buildScript->content ?? '',
-                serverLog: $log,
-                user: $site->user,
-                variables: $site->environmentVariables($deployment),
-                aliases: $site->environmentAliases(),
-            );
-
-            // link resources
-            $site->server->ssh($site->user)->exec(
-                view('ssh.modern-deployment.link-resources', [
-                    'site' => $site,
-                    'releasePath' => $deployment->path(),
-                ]),
-                'link-resources',
-                $site->id
-            );
-
-            // pre-flight
-            $site->server->os()->runScript(
-                path: $deployment->path(),
-                script: $site->preFlightScript->content ?? '',
-                serverLog: $log,
-                user: $site->user,
-                variables: $site->environmentVariables($deployment),
-                aliases: $site->environmentAliases(),
-            );
-
-            // release
-            $site->server->ssh($site->user)->exec(
-                view('ssh.modern-deployment.release', [
-                    'site' => $site,
-                    'releasePath' => $deployment->path(),
-                ]),
-                'release',
-                $site->id
-            );
-
-            if ($site->preFlightScript?->shouldRestartWorkers()) {
-                /** @var ProcessManager $processManager */
-                $processManager = $site->server->processManager()->handler();
-                $processManager->restartAll($site->id);
-            }
-
-            $deployment->status = DeploymentStatus::FINISHED;
-            $deployment->save();
-            $deployment->activate();
-            Notifier::send($site, new DeploymentCompleted($deployment, $site));
-        })->catch(function () use ($deployment, $site, $current): void {
-            $deployment->status = DeploymentStatus::FAILED;
-            $deployment->save();
-            Notifier::send($site, new DeploymentCompleted($deployment, $site));
-            if ($current) {
-                $deployment->site->server->ssh($site->user)->exec(
-                    view('ssh.modern-deployment.release', [
-                        'site' => $site,
-                        'releasePath' => $current->path(),
-                    ]),
-                    'release',
-                    $site->id
-                );
-                $current->activate();
-
-            }
-        })->onQueue('ssh-unique');
+        $this->broadcastDeploymentCreated($site, $deployment);
 
         return $deployment;
     }

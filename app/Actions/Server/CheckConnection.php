@@ -7,6 +7,7 @@ use App\Facades\Notifier;
 use App\Models\Server;
 use App\Notifications\ServerConnected;
 use App\Notifications\ServerDisconnected;
+use Illuminate\Support\Sleep;
 use Throwable;
 
 class CheckConnection
@@ -20,19 +21,21 @@ class CheckConnection
             if (in_array($status, [ServerStatus::DISCONNECTED, ServerStatus::UPDATING])) {
                 $server->status = ServerStatus::READY;
                 $server->save();
+                app(BroadcastServerUpdate::class)->broadcast($server);
                 if ($status === ServerStatus::DISCONNECTED) {
                     Notifier::send($server, new ServerConnected($server));
                 }
             }
         } catch (Throwable) {
             if ($retry > 0) {
-                sleep(3);
+                Sleep::sleep(3);
 
                 return $this->check($server, $retry - 1);
             }
             if ($status !== ServerStatus::DISCONNECTED) {
                 $server->status = ServerStatus::DISCONNECTED;
                 $server->save();
+                app(BroadcastServerUpdate::class)->broadcast($server);
                 Notifier::send($server, new ServerDisconnected($server));
             }
         }

@@ -1,4 +1,4 @@
-sudo service supervisor stop
+sudo systemctl stop supervisor
 
 sudo DEBIAN_FRONTEND=noninteractive apt-get remove supervisor -y
 

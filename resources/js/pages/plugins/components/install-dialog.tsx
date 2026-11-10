@@ -12,12 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { useForm, usePage } from '@inertiajs/react';
 import { useState } from 'react';
-import { DownloadIcon, LoaderCircleIcon } from 'lucide-react';
+import { DownloadIcon, LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react';
 import { Form, FormField, FormFields } from '@/components/ui/form';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import InputError from '@/components/ui/input-error';
 import { Plugin } from '@/types/plugin';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function InstallDialog({ repo }: { repo?: Repo }) {
   const [open, setOpen] = useState(false);
@@ -30,7 +31,7 @@ export default function InstallDialog({ repo }: { repo?: Repo }) {
   });
 
   const submit = () => {
-    form.post(route('plugins.install'), {
+    form.post(route('plugins.install.github'), {
       onSuccess: () => {
         form.reset();
         setOpen(false);
@@ -51,6 +52,12 @@ export default function InstallDialog({ repo }: { repo?: Repo }) {
           <DialogTitle>Install plugin</DialogTitle>
           <DialogDescription>Install a plugin from a GitHub Repository</DialogDescription>
         </DialogHeader>
+        <Alert>
+          <TriangleAlertIcon className="text-warning!" />
+          <AlertDescription>
+            Be careful when installing third-party plugins. Always review the source code and verify that the plugin is not harmful before installing.
+          </AlertDescription>
+        </Alert>
         <Form className="p-4" id="install-plugin-form" onSubmit={submit}>
           <FormFields>
             <FormField className="space-y-2">

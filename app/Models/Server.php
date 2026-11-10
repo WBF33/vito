@@ -2,24 +2,31 @@
 
 namespace App\Models;
 
+use App\Actions\Network\ResyncNetworkSiblings;
 use App\Actions\Server\CheckConnection;
+use App\Enums\OperatingSystem;
+use App\Enums\SecurityControlStatus;
 use App\Enums\ServerStatus;
 use App\Enums\ServiceStatus;
 use App\Exceptions\SSHError;
 use App\Facades\SSH;
+use App\ServerFeatures\ActionInterface;
 use App\SSH\OS\Cron;
 use App\SSH\OS\OS;
+use App\SSH\OS\Security;
 use App\SSH\OS\Systemd;
 use App\Support\Testing\SSHFake;
 use Carbon\Carbon;
 use Database\Factories\ServerFactory;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
@@ -34,7 +41,7 @@ use Throwable;
  * @property string $ip
  * @property ?string $local_ip
  * @property int $port
- * @property string $os
+ * @property OperatingSystem $os
  * @property string $type
  * @property array<string, mixed> $type_data
  * @property string $provider
@@ -42,8 +49,9 @@ use Throwable;
  * @property array<string, mixed> $provider_data
  * @property array<string, mixed> $authentication
  * @property string $public_key
- * @property string $status
+ * @property ServerStatus $status
  * @property bool $auto_update
+ * @property ?string $auto_update_schedule
  * @property int|float $progress
  * @property ?string $progress_step
  * @property Project $project
@@ -55,13 +63,14 @@ use Throwable;
  * @property Collection<int, Database> $databases
  * @property Collection<int, DatabaseUser> $databaseUsers
  * @property Collection<int, FirewallRule> $firewallRules
+ * @property Collection<int, ServerIpAddress> $ipAddresses
  * @property Collection<int, CronJob> $cronJobs
  * @property Collection<int, Worker> $queues
  * @property Collection<int, Backup> $backups
  * @property Collection<int, SshKey> $sshKeys
- * @property Collection<int, Tag> $tags
  * @property string $hostname
  * @property int $updates
+ * @property int $kernel_updates
  * @property ?Carbon $last_update_check
  */
 class Server extends AbstractModel
@@ -85,10 +94,13 @@ class Server extends AbstractModel
         'public_key',
         'status',
         'auto_update',
+        'auto_update_schedule',
         'progress',
         'progress_step',
         'updates',
+        'kernel_updates',
         'last_update_check',
+        'feature_data',
     ];
 
     protected $casts = [
@@ -100,16 +112,37 @@ class Server extends AbstractModel
         'auto_update' => 'boolean',
         'progress' => 'float',
         'updates' => 'integer',
+        'kernel_updates' => 'integer',
         'last_update_check' => 'datetime',
+        'feature_data' => 'json',
+        'os' => OperatingSystem::class,
+        'status' => ServerStatus::class,
     ];
 
     protected $hidden = [
         'authentication',
     ];
 
+    public bool $deleteFromProvider = true;
+
+    /**
+     * Carried between the two events because the membership rows are gone by the second.
+     *
+     * @var array{members: array<int, int>, networks: array<int, int>}
+     */
+    protected array $networkDeparture = ['members' => [], 'networks' => []];
+
     public static function boot(): void
     {
         parent::boot();
+
+        static::deleting(function (Server $server): void {
+            $server->networkDeparture = app(ResyncNetworkSiblings::class)->capture($server);
+        });
+
+        static::deleted(function (Server $server): void {
+            app(ResyncNetworkSiblings::class)->handle($server->networkDeparture);
+        });
 
         static::deleting(function (Server $server): void {
             DB::beginTransaction();
@@ -126,6 +159,10 @@ class Server extends AbstractModel
                     /** @var ServerLog $log */
                     $log->delete();
                 });
+                $server->backups()->each(function ($backup): void {
+                    /** @var Backup $backup */
+                    $backup->delete();
+                });
                 $server->services()->delete();
                 $server->databases()->delete();
                 $server->databaseUsers()->delete();
@@ -140,7 +177,9 @@ class Server extends AbstractModel
                 if (File::exists($server->sshKey()['private_key_path'])) {
                     File::delete($server->sshKey()['private_key_path']);
                 }
-                $server->provider()->delete();
+                if ($server->deleteFromProvider) {
+                    $server->provider()->delete();
+                }
                 DB::commit();
             } catch (Throwable $e) {
                 DB::rollBack();
@@ -148,17 +187,6 @@ class Server extends AbstractModel
             }
         });
     }
-
-    /**
-     * @var array<string, string>
-     */
-    public static array $statusColors = [
-        ServerStatus::READY => 'success',
-        ServerStatus::INSTALLING => 'warning',
-        ServerStatus::DISCONNECTED => 'gray',
-        ServerStatus::INSTALLATION_FAILED => 'danger',
-        ServerStatus::UPDATING => 'warning',
-    ];
 
     public function isReady(): bool
     {
@@ -216,6 +244,14 @@ class Server extends AbstractModel
     }
 
     /**
+     * @return HasMany<IsolatedUser, covariant $this>
+     */
+    public function isolatedUsers(): HasMany
+    {
+        return $this->hasMany(IsolatedUser::class);
+    }
+
+    /**
      * @return HasMany<Service, covariant $this>
      */
     public function services(): HasMany
@@ -240,11 +276,35 @@ class Server extends AbstractModel
     }
 
     /**
+     * @return HasMany<Ssl, covariant $this>
+     */
+    public function ssls(): HasMany
+    {
+        return $this->hasMany(Ssl::class);
+    }
+
+    /**
      * @return HasMany<FirewallRule, covariant $this>
      */
     public function firewallRules(): HasMany
     {
         return $this->hasMany(FirewallRule::class);
+    }
+
+    /**
+     * @return HasMany<ServerNetworkRule, covariant $this>
+     */
+    public function networkRules(): HasMany
+    {
+        return $this->hasMany(ServerNetworkRule::class);
+    }
+
+    /**
+     * @return HasMany<ServerIpAddress, covariant $this>
+     */
+    public function ipAddresses(): HasMany
+    {
+        return $this->hasMany(ServerIpAddress::class);
     }
 
     /**
@@ -288,21 +348,21 @@ class Server extends AbstractModel
     }
 
     /**
+     * @return HasOne<Metric, covariant $this>
+     */
+    public function latestMetric(): HasOne
+    {
+        return $this->hasOne(Metric::class)->latestOfMany();
+    }
+
+    /**
      * @return BelongsToMany<SshKey, covariant $this>
      */
     public function sshKeys(): BelongsToMany
     {
         return $this->belongsToMany(SshKey::class, 'server_ssh_keys')
-            ->withPivot('status')
+            ->withPivot('status', 'user')
             ->withTimestamps();
-    }
-
-    /**
-     * @return MorphToMany<Tag, covariant $this>
-     */
-    public function tags(): MorphToMany
-    {
-        return $this->morphToMany(Tag::class, 'taggable');
     }
 
     public function getSshUser(): string
@@ -315,15 +375,37 @@ class Server extends AbstractModel
     }
 
     /**
+     * @deprecated Prefer `$site->isolatedUser->lock()`
+     */
+    public function isolatedUserLock(string $user): Lock
+    {
+        return Cache::lock("isolate:{$this->id}:{$user}", 60);
+    }
+
+    /**
      * @return array<string>
      */
     public function getSshUsers(): array
     {
         $users = ['root', $this->getSshUser()];
-        $isolatedSites = $this->sites()->pluck('user')->toArray();
-        $users = array_merge($users, $isolatedSites);
+        $users = array_merge($users, $this->isolatedUsers()->pluck('username')->toArray());
+        $users = array_merge($users, $this->sites()->whereNotNull('user')->pluck('user')->toArray());
 
-        return array_unique($users);
+        return array_values(array_unique($users));
+    }
+
+    /**
+     * @return array<string>
+     */
+    public function sshLoginUsers(): array
+    {
+        $users = $this->getSshUsers();
+
+        if (($this->feature_data['security']['root_login']['enabled'] ?? true) === false) {
+            $users = array_values(array_filter($users, fn (string $user): bool => $user !== 'root'));
+        }
+
+        return $users;
     }
 
     public function service(string $type, mixed $version = null): ?Service
@@ -437,6 +519,11 @@ class Server extends AbstractModel
         return $this->service('firewall', $version);
     }
 
+    public function fail2ban(): ?Service
+    {
+        return $this->defaultService('fail2ban');
+    }
+
     public function processManager(?string $version = null): ?Service
     {
         if ($version === null || $version === '' || $version === '0') {
@@ -522,12 +609,73 @@ class Server extends AbstractModel
         return new Cron($this);
     }
 
+    public function security(): Security
+    {
+        return new Security($this);
+    }
+
+    /**
+     * Normalised security-hardening state stored in feature_data['security'].
+     *
+     * @return array{password_authentication: array{enabled: bool, detected: ?bool, status: string}, root_login: array{enabled: bool, detected: ?bool, status: string}}
+     */
+    public function securityState(): array
+    {
+        $security = $this->feature_data['security'] ?? [];
+
+        return [
+            'password_authentication' => [
+                'enabled' => $security['password_authentication']['enabled'] ?? true,
+                'detected' => $security['password_authentication']['detected'] ?? null,
+                'status' => $security['password_authentication']['status'] ?? SecurityControlStatus::DISABLED->value,
+            ],
+            'root_login' => [
+                'enabled' => $security['root_login']['enabled'] ?? true,
+                'detected' => $security['root_login']['detected'] ?? null,
+                'status' => $security['root_login']['status'] ?? SecurityControlStatus::DISABLED->value,
+            ],
+        ];
+    }
+
+    /**
+     * @return array{score: int, passed: int, total: int, checks: array<int, array{key: string, label: string, passed: bool}>}
+     */
+    public function securityScore(): array
+    {
+        $state = $this->securityState();
+        $fail2ban = $this->fail2ban();
+        $firewall = $this->firewall();
+        $ready = SecurityControlStatus::READY->value;
+
+        $checks = [
+            ['key' => 'auto_update', 'label' => 'Automatic updates enabled', 'passed' => (bool) $this->auto_update],
+            ['key' => 'firewall', 'label' => 'Firewall installed', 'passed' => $firewall instanceof Service && $firewall->status === ServiceStatus::READY],
+            ['key' => 'fail2ban', 'label' => 'Fail2ban installed', 'passed' => $fail2ban instanceof Service && $fail2ban->status === ServiceStatus::READY],
+            ['key' => 'password_auth', 'label' => 'Password authentication disabled', 'passed' => $state['password_authentication']['enabled'] === false && $state['password_authentication']['status'] === $ready],
+        ];
+
+        if ($this->getSshUser() !== 'root') {
+            $checks[] = ['key' => 'root_login', 'label' => 'Root SSH login disabled', 'passed' => $state['root_login']['enabled'] === false && $state['root_login']['status'] === $ready];
+        }
+
+        $passed = count(array_filter($checks, fn (array $check): bool => $check['passed']));
+
+        return [
+            'score' => (int) round($passed / count($checks) * 100),
+            'passed' => $passed,
+            'total' => count($checks),
+            'checks' => $checks,
+        ];
+    }
+
     /**
      * @throws SSHError
      */
     public function checkForUpdates(): void
     {
-        $this->updates = $this->os()->availableUpdates();
+        $result = $this->os()->availableUpdates();
+        $this->updates = $result['updates'];
+        $this->kernel_updates = $result['kernel'];
         $this->last_update_check = now();
         $this->save();
     }
@@ -543,12 +691,64 @@ class Server extends AbstractModel
         );
     }
 
-    public function getStatusColor(): string
+    /**
+     * @return array<string, mixed>
+     */
+    public function features(): array
     {
-        if (isset(self::$statusColors[$this->status])) {
-            return self::$statusColors[$this->status];
+        $features = config('server.features', []);
+        foreach ($features as $featureKey => $feature) {
+            foreach ($feature['actions'] ?? [] as $actionKey => $action) {
+                $handlerClass = $action['handler'] ?? null;
+                if ($handlerClass && class_exists($handlerClass)) {
+                    /** @var ActionInterface $handler */
+                    $handler = new $handlerClass($this);
+                    $action['active'] = $handler->active();
+                    if (! isset($action['form']) || empty($action['form'])) {
+                        $action['form'] = $handler->form()?->toArray() ?? [];
+                    }
+                }
+                $features[$featureKey]['actions'][$actionKey] = $action;
+            }
         }
 
-        return 'gray';
+        return $features;
+    }
+
+    public function hasFeature(string $feature): bool
+    {
+        return in_array($feature, config('server.features', []));
+    }
+
+    /**
+     * @return array<int, array{key: string, ...}>
+     */
+    public function getWarnings(): array
+    {
+        $warnings = [];
+
+        if ($this->updates > 0) {
+            $warnings[] = [
+                'key' => 'updates_available',
+                'count' => $this->updates,
+            ];
+        }
+
+        if ($this->kernel_updates > 0) {
+            $warnings[] = [
+                'key' => 'kernel_update_available',
+                'count' => $this->kernel_updates,
+            ];
+        }
+
+        $latestMetric = $this->relationLoaded('latestMetric')
+            ? $this->latestMetric
+            : $this->latestMetric()->first();
+
+        if ($latestMetric?->reboot_required) {
+            $warnings[] = ['key' => 'reboot_required'];
+        }
+
+        return $warnings;
     }
 }

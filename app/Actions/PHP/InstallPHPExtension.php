@@ -2,9 +2,9 @@
 
 namespace App\Actions\PHP;
 
+use App\Jobs\PHP\InstallExtensionJob;
 use App\Models\Server;
 use App\Models\Service;
-use App\Services\PHP\PHP;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +19,7 @@ class InstallPHPExtension
         /** @var Service $service */
         $service = $server->php($input['version']);
 
-        Validator::make($input, self::rules($server, $service))->validate();
+        $this->validate($server, $service, $input);
 
         if (in_array($input['extension'], $service->type_data['extensions'] ?? [])) {
             throw ValidationException::withMessages([
@@ -33,26 +33,12 @@ class InstallPHPExtension
         $service->type_data = $typeData;
         $service->save();
 
-        dispatch(
-            function () use ($service, $input): void {
-                /** @var PHP $handler */
-                $handler = $service->handler();
-                $handler->installExtension($input['extension']);
-            })->catch(function () use ($service, $input): void {
-                $service->refresh();
-                $typeData = $service->type_data;
-                $typeData['extensions'] = array_values(array_diff($typeData['extensions'], [$input['extension']]));
-                $service->type_data = $typeData;
-                $service->save();
-            })->onQueue('ssh-unique');
+        dispatch(new InstallExtensionJob($service, $input['extension']))->onQueue('ssh');
 
         return $service;
     }
 
-    /**
-     * @return array<string, array<string>>
-     */
-    public static function rules(Server $server, Service $service): array
+    private function validate(Server $server, Service $service, array $input): void
     {
         $extensions = event('php.extensions.list', [
             'service' => $service,
@@ -60,7 +46,7 @@ class InstallPHPExtension
         ]);
         $extensions = array_shift($extensions);
 
-        return [
+        $rules = [
             'extension' => [
                 'required',
                 Rule::in($extensions['available_extensions'] ?? config('service.services.php.data.extensions', [])),
@@ -72,5 +58,7 @@ class InstallPHPExtension
                     ->where('type', 'php'),
             ],
         ];
+
+        Validator::make($input, $rules)->validate();
     }
 }

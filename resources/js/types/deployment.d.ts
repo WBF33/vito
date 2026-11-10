@@ -5,7 +5,7 @@ export interface Deployment {
   site_id: number;
   deployment_script_id: number;
   log_id: number;
-  log: ServerLog;
+  log: ServerLog | null;
   commit_id: string;
   commit_id_short: string;
   commit_data: {

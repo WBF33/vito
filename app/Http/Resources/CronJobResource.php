@@ -16,12 +16,14 @@ class CronJobResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'name' => $this->name,
             'server_id' => $this->server_id,
+            'site_id' => $this->site_id,
             'command' => $this->command,
             'user' => $this->user,
             'frequency' => $this->frequency,
-            'status' => $this->status,
-            'status_color' => CronJob::$statusColors[$this->status] ?? 'gray',
+            'status' => $this->status->getText(),
+            'status_color' => $this->status->getColor(),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

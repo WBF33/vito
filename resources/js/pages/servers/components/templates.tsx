@@ -136,7 +136,7 @@ function Save({
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Save tempalte</DialogTitle>
+          <DialogTitle>Save template</DialogTitle>
           <DialogDescription className="sr-only">Save as template</DialogDescription>
         </DialogHeader>
         <Form className="p-4">
@@ -220,7 +220,7 @@ export default function ServerTemplates({
             <ChevronsUpDownIcon className="opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0">
+        <PopoverContent className="w-(--radix-popover-trigger-width) p-0">
           <Command>
             <CommandInput placeholder="Search template..." className="h-9" />
             <CommandList>

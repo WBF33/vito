@@ -1,19 +1,19 @@
-import { Head, usePage } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 
-import { PaginatedData, type Configs } from '@/types';
+import { type Configs } from '@/types';
 
-import { DataTable } from '@/components/data-table';
-import { columns } from '@/pages/servers/components/columns';
-import { Server } from '@/types/server';
+import { VitoTable } from '@/components/vito-table';
 import Heading from '@/components/heading';
 import CreateServer from '@/pages/servers/components/create-server';
 import Container from '@/components/container';
 import { Button } from '@/components/ui/button';
 import Layout from '@/layouts/app/layout';
-import { PlusIcon } from 'lucide-react';
+import { BookOpenIcon, EyeIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react';
+import type { InertiaTableData, Row } from '@forjedio/inertia-table-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 type Page = {
-  servers: PaginatedData<Server>;
+  servers: InertiaTableData;
   public_key: string;
   configs: Configs;
 };
@@ -28,6 +28,12 @@ export default function Servers() {
         <div className="flex items-start justify-between">
           <Heading title="Servers" description="All of the servers of your project listed here" />
           <div className="flex items-center gap-2">
+            <a href="https://vitodeploy.com/docs/servers/create" target="_blank">
+              <Button variant="outline">
+                <BookOpenIcon />
+                <span className="hidden lg:block">Docs</span>
+              </Button>
+            </a>
             <CreateServer>
               <Button>
                 <PlusIcon />
@@ -36,7 +42,37 @@ export default function Servers() {
             </CreateServer>
           </div>
         </div>
-        <DataTable columns={columns} paginatedData={page.props.servers} searchable />
+        <VitoTable
+          tableData={page.props.servers}
+          actions={(row: Row) => {
+            const warnings = (row.warnings as Array<{ key: string }>) ?? [];
+            const count = warnings.length;
+            return (
+              <div className="flex items-center justify-end gap-2">
+                {count > 0 && (
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="bg-warning/15 text-warning border-warning/40 flex cursor-default items-center gap-1.5 rounded-md border px-2 py-1.5">
+                          <TriangleAlertIcon className="h-4 w-4" />
+                          <span className="text-xs font-semibold">{count}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {count} {count === 1 ? 'warning' : 'warnings'}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <Link href={route('servers.show', { server: row.id })} prefetch>
+                  <Button variant="outline" size="sm">
+                    <EyeIcon />
+                  </Button>
+                </Link>
+              </div>
+            );
+          }}
+        />
       </Container>
     </Layout>
   );

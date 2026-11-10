@@ -20,7 +20,7 @@ class LinkUser
      */
     public function link(DatabaseUser $databaseUser, array $input): DatabaseUser
     {
-        Validator::make($input, self::rules($databaseUser->server))->validate();
+        $this->validate($databaseUser->server, $input);
 
         if (! isset($input['databases']) || ! is_array($input['databases'])) {
             $input['databases'] = [];
@@ -34,44 +34,39 @@ class LinkUser
             throw ValidationException::withMessages(['databases' => __('Databases not found!')]);
         }
 
-        $databaseUser->databases = $input['databases'];
-
         /** @var Service $service */
         $service = $databaseUser->server->database();
 
         /** @var \App\Services\Database\Database $handler */
         $handler = $service->handler();
 
-        // Unlink the user from all databases
         $handler->unlink(
             $databaseUser->username,
             $databaseUser->host
         );
 
-        // Link the user to the selected databases
+        $databaseUser->databases = $input['databases'];
+        $databaseUser->save();
+
         $handler->link(
             $databaseUser->username,
             $databaseUser->host,
-            $databaseUser->databases
+            $databaseUser->databases,
+            $databaseUser->permission->value
         );
-
-        $databaseUser->save();
 
         $databaseUser->refresh();
 
         return $databaseUser;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    public static function rules(Server $server): array
+    private function validate(Server $server, array $input): void
     {
-        return [
+        Validator::make($input, [
             'databases.*' => [
                 'nullable',
                 Rule::exists('databases', 'name')->where('server_id', $server->id),
             ],
-        ];
+        ])->validate();
     }
 }

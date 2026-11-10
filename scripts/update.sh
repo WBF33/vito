@@ -4,15 +4,19 @@ echo "Updating Vito..."
 
 cd /home/vito/vito
 
+echo "Discarding any possible local changes..."
+git reset --hard HEAD
+git clean -fd
+
 echo "Pulling changes..."
 git fetch --all
 
-INCLUDE_PATTERN='^3\.[0-9]+\.[0-9]+$' # stable only
+INCLUDE_PATTERN='^4\.[0-9]+\.[0-9]+$' # stable only
 
 if [[ "$1" == "--alpha" ]]; then
-  INCLUDE_PATTERN='^3\.[0-9]+\.[0-9]+(-alpha-[0-9]+|-beta-[0-9]+|-rc-[0-9]+)?$'
+  INCLUDE_PATTERN='^4\.[0-9]+\.[0-9]+(-alpha-[0-9]+|-beta-[0-9]+|-rc-[0-9]+)?$'
 elif [[ "$1" == "--beta" ]]; then
-  INCLUDE_PATTERN='^3\.[0-9]+\.[0-9]+(-beta-[0-9]+|-rc-[0-9]+)?$'
+  INCLUDE_PATTERN='^4\.[0-9]+\.[0-9]+(-beta-[0-9]+|-rc-[0-9]+)?$'
 fi
 
 # Filter and sort matching tags
@@ -36,15 +40,13 @@ composer install --no-dev
 echo "Running migrations..."
 php artisan migrate --force
 
-echo "Reloading plugins..."
-php artisan legacy-plugins:load
-
 echo "Optimizing..."
 php artisan optimize:clear
 php artisan optimize
 
 echo "Restarting workers..."
 sudo supervisorctl restart worker:*
+sudo supervisorctl restart websocket 2>/dev/null || true
 
 bash scripts/post-update.sh
 

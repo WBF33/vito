@@ -1,0 +1,113 @@
+type: object
+properties:
+  id:
+    type: integer
+    example: 1
+  server_id:
+    type: integer
+    nullable: true
+    example: 1
+  site_id:
+    type: integer
+    nullable: true
+    example: 1
+  is_wildcard:
+    type: boolean
+    example: false
+  has_csr:
+    type: boolean
+    example: false
+  domains:
+    type: array
+    items:
+      type: string
+    nullable: true
+    description: List of domains covered by this certificate
+    example: ['*.example.com', 'example.com']
+  type:
+    type: string
+    enum: ['letsencrypt', 'custom', 'csr']
+    example: 'letsencrypt'
+  status:
+    type: string
+    enum: ['created', 'creating', 'deleting', 'failed']
+    example: 'created'
+  log:
+    type: object
+    nullable: true
+    description: Server log information (when log_id is present)
+    properties:
+      id:
+        type: integer
+        example: 1
+      server_id:
+        type: integer
+        example: 1
+      site_id:
+        type: integer
+        nullable: true
+        example: 1
+      type:
+        type: string
+        example: 'ssl'
+      name:
+        type: string
+        example: 'ssl.log'
+      disk:
+        type: string
+        example: 'local'
+      is_remote:
+        type: boolean
+        example: false
+      created_at:
+        type: string
+        format: date-time
+      updated_at:
+        type: string
+        format: date-time
+  status_color:
+    type: string
+    enum: ['success', 'warning', 'danger']
+    example: 'success'
+  csr_data:
+    type: object
+    nullable: true
+    description: CSR-specific data (only present for CSR type)
+    properties:
+      common_name:
+        type: string
+        example: 'example.com'
+      organization:
+        type: string
+        example: 'Acme Inc'
+      organizational_unit:
+        type: string
+        nullable: true
+        example: 'IT'
+      city:
+        type: string
+        example: 'San Francisco'
+      state:
+        type: string
+        example: 'California'
+      country:
+        type: string
+        example: 'US'
+      email:
+        type: string
+        nullable: true
+        example: 'admin@example.com'
+      key_size:
+        type: integer
+        example: 2048
+  expires_at:
+    type: string
+    format: date-time
+    nullable: true
+    example: '2025-01-01T00:00:00.000000Z'
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time

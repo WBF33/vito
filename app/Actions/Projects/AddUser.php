@@ -2,11 +2,12 @@
 
 namespace App\Actions\Projects;
 
+use App\Enums\UserRole;
 use App\Models\Project;
 use App\Models\User;
-use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AddUser
 {
@@ -15,28 +16,36 @@ class AddUser
      */
     public function add(Project $project, array $input): void
     {
-        Validator::make($input, self::rules($project))->validate();
+        $this->validate($input);
 
         /** @var User $user */
-        $user = User::query()->findOrFail($input['user']);
+        $user = User::query()->where('email', $input['email'])->firstOrFail();
 
-        $project->users()->detach($user);
-        $project->users()->attach($user);
+        if ($project->users->contains($user->id)) {
+            throw ValidationException::withMessages([
+                'email' => __('This user is already added to the project.'),
+            ]);
+        }
+
+        $project->users()->create([
+            'user_id' => $user->id,
+            'role' => UserRole::from($input['role']),
+        ]);
     }
 
-    /**
-     * @return array<string, array<string>>
-     */
-    public static function rules(Project $project): array
+    private function validate(array $input): void
     {
-        return [
-            'user' => [
+        $rules = [
+            'email' => [
                 'required',
-                Rule::exists('users', 'id'),
-                Rule::unique('user_project', 'user_id')->where(function (Builder $query) use ($project): void {
-                    $query->where('project_id', $project->id);
-                }),
+                Rule::exists('users', 'email'),
+            ],
+            'role' => [
+                'required',
+                Rule::in(UserRole::cases()),
             ],
         ];
+
+        Validator::make($input, $rules)->validate();
     }
 }

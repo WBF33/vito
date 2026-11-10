@@ -1,0 +1,321 @@
+paths:
+  /api/projects/{project}/source-controls:
+    get:
+      summary: List source controls
+      description: "DEPRECATED: Use /api/source-controls instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Source Controls
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: List of source controls
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '/api-docs/openapi/schemas/PaginatedResponse.yaml'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '/api-docs/openapi/schemas/SourceControl.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    post:
+      summary: Create source control
+      description: "DEPRECATED: Use /api/source-controls instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Source Controls
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - provider
+              description: |
+                Required credential fields depend on the provider:
+                - github, gitlab, gitea: token
+                - bitbucket (deprecated): username + password
+                - bitbucket-v2: key + secret
+              properties:
+                name:
+                  type: string
+                  description: Source control name
+                  example: 'GitHub'
+                provider:
+                  type: string
+                  enum: ['github', 'gitlab', 'bitbucket', 'bitbucket-v2', 'gitea']
+                  description: Source control provider type
+                  example: 'github'
+                token:
+                  type: string
+                  description: 'Access token. Required for github, gitlab and gitea.'
+                  example: 'ghp_xxxxxxxxxxxxxxxxxxxx'
+                username:
+                  type: string
+                  description: 'Account username. Required for bitbucket (deprecated).'
+                  example: 'my-bitbucket-user'
+                password:
+                  type: string
+                  description: 'Account password / app password. Required for bitbucket (deprecated).'
+                  example: 'app-password'
+                key:
+                  type: string
+                  description: 'OAuth consumer key. Required for bitbucket-v2.'
+                  example: 'consumer-key'
+                secret:
+                  type: string
+                  description: 'OAuth consumer secret. Required for bitbucket-v2.'
+                  example: 'consumer-secret'
+                url:
+                  type: string
+                  description: Custom URL for self-hosted instances (optional, gitlab/gitea)
+                  example: 'https://git.example.com'
+                ssh_port:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+                  maximum: 65535
+                  description: 'SSH port used when cloning repositories. Only honoured by providers that support a custom port (Gitea, GitLab). Defaults to 22 when omitted.'
+                  example: 22
+      responses:
+        '201':
+          description: Source control created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/SourceControl.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/source-controls/{sourceControl}:
+    get:
+      summary: Get source control
+      description: "DEPRECATED: Use /api/source-controls/{sourceControl} instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Source Controls
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: sourceControl
+          in: path
+          required: true
+          description: Source control ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Source control details
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/SourceControl.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Source control not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    put:
+      summary: Update source control
+      description: "DEPRECATED: Use /api/source-controls/{sourceControl} instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Source Controls
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: sourceControl
+          in: path
+          required: true
+          description: Source control ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Source control name
+                  example: 'GitHub'
+                ssh_port:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+                  maximum: 65535
+                  description: 'SSH port used when cloning repositories. Only honoured by providers that support a custom port (Gitea, GitLab).'
+                  example: 22
+      responses:
+        '200':
+          description: Source control updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/SourceControl.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Source control not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+    delete:
+      summary: Delete source control
+      description: "DEPRECATED: Use /api/source-controls/{sourceControl} instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Source Controls
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: sourceControl
+          in: path
+          required: true
+          description: Source control ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '204':
+          description: Source control deleted successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Source control not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'

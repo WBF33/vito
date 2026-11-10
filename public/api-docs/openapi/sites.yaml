@@ -1,0 +1,1828 @@
+paths:
+  /api/projects/{project}/servers/{server}/sites:
+    get:
+      summary: List sites
+      description: Get all sites for a server
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: List of sites
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '/api-docs/openapi/schemas/PaginatedResponse.yaml'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '/api-docs/openapi/schemas/Site.yaml'
+              example:
+                data:
+                  - id: 1
+                    server_id: 1
+                    server:
+                      id: 1
+                      name: 'production-server'
+                      ip: '192.168.1.100'
+                    source_control_id: 1
+                    type: 'laravel'
+                    type_data: {}
+                    domain: 'example.com'
+                    web_directory: 'public'
+                    webserver: 'nginx'
+                    path: '/home/www-data/example.com'
+                    php_version: '8.2'
+                    repository: 'https://github.com/user/repo.git'
+                    branch: 'main'
+                    status: 'ready'
+                    status_color: 'success'
+                    auto_deploy: true
+                    port: 80
+                    user: 'www-data'
+                    url: 'https://example.com'
+                    force_ssl: true
+                    progress: 100
+                    features: ['ssl', 'backups', 'monitoring']
+                    modern_deployment: true
+                    created_at: '2024-01-01T00:00:00.000000Z'
+                    updated_at: '2024-01-01T00:00:00.000000Z'
+                links:
+                  first: 'http://localhost/api/projects/1/servers/1/sites?page=1'
+                  last: 'http://localhost/api/projects/1/servers/1/sites?page=10'
+                  prev: null
+                  next: 'http://localhost/api/projects/1/servers/1/sites?page=2'
+                meta:
+                  current_page: 1
+                  from: 1
+                  last_page: 10
+                  per_page: 25
+                  to: 25
+                  total: 250
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Project or server not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    post:
+      summary: Create site
+      description: Create a new site
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type
+                - domain
+                - user
+              properties:
+                type:
+                  type: string
+                  description: Site type
+                  example: 'laravel'
+                domain:
+                  type: string
+                  format: hostname
+                  description: Site domain
+                  example: 'example.com'
+                aliases:
+                  type: array
+                  description: Alias domains for the site
+                  items:
+                    type: string
+                    format: hostname
+                  example: ['www.example.com']
+                user:
+                  type: string
+                  pattern: '^[a-z_][a-z0-9_-]*[a-z0-9]$'
+                  minLength: 3
+                  maxLength: 32
+                  description: System user for the site
+                  example: 'www-data'
+                repository:
+                  type: string
+                  format: uri
+                  description: Git repository URL
+                  example: 'https://github.com/user/repo.git'
+                branch:
+                  type: string
+                  description: Git branch
+                  example: 'main'
+                source_control_id:
+                  type: integer
+                  description: Source control provider ID
+                  example: 1
+                node_version:
+                  type: string
+                  enum: ['none', '22', '23', '24']
+                  description: 'Node.js runtime version to install via mise on the isolated user. `none` skips installation. Defaults to `none` for `php`, `php-blank`, and `laravel`. Locked to the existing version if any sibling site under the same isolated user already has Node configured.'
+                  example: 'none'
+                bun_version:
+                  type: string
+                  enum: ['none', '1.0', '1.1', '1.2']
+                  description: 'Bun runtime version to install via mise on the isolated user. `none` skips installation. Defaults to `none` for `php`, `php-blank`, and `laravel`. Locked to the existing version if any sibling site under the same isolated user already has Bun configured.'
+                  example: 'none'
+            example:
+              type: 'laravel'
+              domain: 'example.com'
+              user: 'www-data'
+              repository: 'https://github.com/user/repo.git'
+              branch: 'main'
+              source_control_id: 1
+              node_version: '22'
+              bun_version: 'none'
+      responses:
+        '200':
+          description: Site created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+              example:
+                id: 1
+                server_id: 1
+                server:
+                  id: 1
+                  name: 'production-server'
+                  ip: '192.168.1.100'
+                source_control_id: 1
+                type: 'laravel'
+                type_data: {}
+                domain: 'example.com'
+                web_directory: 'public'
+                webserver: 'nginx'
+                path: '/home/www-data/example.com'
+                php_version: '8.2'
+                repository: 'https://github.com/user/repo.git'
+                branch: 'main'
+                status: 'installing'
+                status_color: 'warning'
+                auto_deploy: true
+                port: 80
+                user: 'www-data'
+                url: 'https://example.com'
+                force_ssl: true
+                progress: 0
+                features: []
+                modern_deployment: true
+                created_at: '2024-01-01T00:00:00.000000Z'
+                updated_at: '2024-01-01T00:00:00.000000Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Project or server not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+              example:
+                message: 'The given data was invalid.'
+                errors:
+                  type: ['The type field is required.']
+                  domain: ['The domain field is required.']
+
+  /api/projects/{project}/servers/{server}/sites/{site}:
+    get:
+      summary: Get site
+      description: Get a specific site by ID
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Site details
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    delete:
+      summary: Delete site
+      description: Delete a site
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '204':
+          description: Site deleted successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/deploy:
+    post:
+      summary: Deploy site
+      description: Deploy a site
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Deployment started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Deployment.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+              example:
+                message: 'Deployment script is empty'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/web-directory:
+    put:
+      summary: Update web directory
+      description: Update site web directory
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                web_directory:
+                  type: string
+                  nullable: true
+                  description: Web directory path
+                  example: 'public'
+            example:
+              web_directory: 'public'
+      responses:
+        '200':
+          description: Web directory updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/deployment-script:
+    get:
+      summary: Get deployment script
+      description: Get site deployment script
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Deployment script
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  script:
+                    type: string
+                    nullable: true
+                    description: Deployment script content
+                    example: "#!/bin/bash\necho 'Deploying...'"
+              example:
+                script: "#!/bin/bash\necho 'Deploying...'"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    put:
+      summary: Update deployment script
+      description: Update site deployment script
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - script
+              properties:
+                script:
+                  type: string
+                  description: Deployment script content
+                  example: "#!/bin/bash\necho 'Deploying...'"
+                restart_workers:
+                  type: boolean
+                  description: Whether to restart workers after deployment
+                  example: false
+            example:
+              script: "#!/bin/bash\necho 'Deploying...'"
+      responses:
+        '204':
+          description: Deployment script updated successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/env:
+    get:
+      summary: Get environment variables
+      description: >-
+        Get site environment variables. Raw env content and real secret values are only returned to
+        tokens carrying the `write` ability whose user also has write access to the project. Read-only
+        callers receive the `variables` array with secret values masked, and no `env` field at all.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Environment variables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      env:
+                        type: string
+                        description: Raw .env file content. Only present for tokens with the `write` ability whose user has write access to the project; omitted entirely otherwise.
+                        example: "APP_NAME=MyApp\nAPP_ENV=production"
+                      variables:
+                        type: array
+                        description: Parsed environment variables
+                        items:
+                          type: object
+                          properties:
+                            key:
+                              type: string
+                              description: Variable name
+                              example: 'APP_NAME'
+                            value:
+                              type: string
+                              description: Variable value. Empty for variables marked as secret unless the caller has write access.
+                              example: 'MyApp'
+                            is_secret:
+                              type: boolean
+                              description: Whether the variable is marked as secret. Secret values are masked (returned empty) for read-only callers and must be re-entered to change them.
+                              example: false
+              example:
+                data:
+                  variables:
+                    - key: 'APP_NAME'
+                      value: 'MyApp'
+                      is_secret: false
+                    - key: 'APP_ENV'
+                      value: 'production'
+                      is_secret: false
+                    - key: 'DB_PASSWORD'
+                      value: ''
+                      is_secret: true
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '500':
+          description: The environment file could not be read from the server
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    put:
+      summary: Update environment variables
+      description: Update site environment variables. You can provide either raw env content or structured variables array.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                env:
+                  type: string
+                  description: >-
+                    Raw .env file content (use this OR variables, not both). Sending an empty or null value
+                    writes an empty file, truncating the site's existing environment.
+                  example: "APP_NAME=MyApp\nAPP_ENV=production"
+                variables:
+                  type: array
+                  minItems: 1
+                  description: >-
+                    Structured environment variables (use this OR env, not both). Must contain at least one
+                    entry — send an empty `env` instead to blank the file.
+                  items:
+                    type: object
+                    required:
+                      - key
+                    properties:
+                      key:
+                        type: string
+                        description: Variable name
+                        example: 'APP_NAME'
+                      value:
+                        type: string
+                        description: Variable value. For a variable marked as secret, send an empty value to keep the current value on the server unchanged.
+                        example: 'MyApp'
+                      is_secret:
+                        type: boolean
+                        description: Mark the variable as secret. Secret values are stored only on the server (never in the database) and are masked when read back.
+                        example: false
+                path:
+                  type: string
+                  pattern: '^[a-zA-Z0-9/_.\-]+$'
+                  description: >-
+                    Custom path to the .env file. Must sit inside the site's directory (or exactly match the
+                    path already stored for the site), may not contain `..`, and is limited to letters,
+                    digits, `/`, `_`, `.` and `-`. Anything else returns 422.
+                  example: '/home/vito/myapp/.env'
+            examples:
+              raw:
+                summary: Using raw env content
+                value:
+                  env: "APP_NAME=MyApp\nAPP_ENV=production"
+              structured:
+                summary: Using structured variables
+                description: >-
+                  Set a new secret value by sending it with is_secret true. To
+                  keep an existing secret unchanged, send it with an empty value.
+                value:
+                  variables:
+                    - key: 'APP_NAME'
+                      value: 'MyApp'
+                      is_secret: false
+                    - key: 'APP_KEY'
+                      value: 'base64:newly-generated-key'
+                      is_secret: true
+                    - key: 'DB_PASSWORD'
+                      value: ''
+                      is_secret: true
+      responses:
+        '200':
+          description: Environment variables updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/retry:
+    post:
+      summary: Retry site installation
+      description: Retry installation for a site whose status is `installation_failed`. The job re-runs the install steps; phases that already completed (isolated user, vhost, deploy key, repository clone) are detected on the server and skipped.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Retry started successfully. Site status returns to `installing`.
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Site is not in the `installation_failed` state and cannot be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/enable-ssl:
+    post:
+      summary: Enable SSL
+      description: Enable SSL for a site. The site will be served over HTTPS when valid certificates exist.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: SSL enabled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/disable-ssl:
+    post:
+      summary: Disable SSL
+      description: Disable SSL for a site. The site will be served over HTTP only.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: SSL disabled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/vhost-generation:
+    put:
+      summary: Update VHost generation
+      description: Enable or disable automatic VHost generation for a site.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vhost_generation_enabled
+              properties:
+                vhost_generation_enabled:
+                  type: boolean
+                  description: Whether to enable automatic VHost generation
+                  example: true
+            example:
+              vhost_generation_enabled: true
+      responses:
+        '200':
+          description: VHost generation setting updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/load-balancer:
+    post:
+      summary: Update load balancer
+      description: Update backend servers and balancing method for a load balancer site.
+      tags:
+        - Sites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - servers
+                - method
+              properties:
+                servers:
+                  type: array
+                  description: Backend servers
+                  items:
+                    type: object
+                    required:
+                      - ip
+                      - port
+                      - backup
+                    properties:
+                      ip:
+                        type: string
+                        format: ipv4
+                        description: Server IP address (must be a server in the same project)
+                        example: '10.0.0.1'
+                      port:
+                        type: integer
+                        minimum: 1
+                        maximum: 65535
+                        description: Port number
+                        example: 80
+                      weight:
+                        type: integer
+                        nullable: true
+                        minimum: 0
+                        description: Server weight (optional)
+                        example: 1
+                      backup:
+                        type: boolean
+                        description: Whether this is a backup server
+                        example: false
+                method:
+                  type: string
+                  enum: ['round-robin', 'least-connections', 'ip-hash']
+                  description: Load balancing method
+                  example: 'round-robin'
+            example:
+              method: 'round-robin'
+              servers:
+                - ip: '10.0.0.1'
+                  port: 80
+                  weight: 1
+                  backup: false
+                - ip: '10.0.0.2'
+                  port: 80
+                  weight: 1
+                  backup: true
+      responses:
+        '200':
+          description: Load balancer updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Site.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/deployments:
+    get:
+      summary: List deployments
+      description: Get all deployments for a site
+      tags:
+        - Deployments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: List of deployments
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '/api-docs/openapi/schemas/PaginatedResponse.yaml'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '/api-docs/openapi/schemas/Deployment.yaml'
+              example:
+                data:
+                  - id: 1
+                    site_id: 1
+                    deployment_script_id: 1
+                    log_id: 1
+                    commit_id: 'abc123def456789'
+                    commit_id_short: 'abc123'
+                    commit_data:
+                      message: 'Fix bug in user authentication'
+                      author: 'John Doe'
+                    status: 'finished'
+                    status_color: 'success'
+                    release: '2024-01-01-120000'
+                    active: true
+                    created_at: '2024-01-01T00:00:00.000000Z'
+                    updated_at: '2024-01-01T00:00:00.000000Z'
+                links:
+                  first: 'http://localhost/api/projects/1/servers/1/sites/1/deployments?page=1'
+                  last: 'http://localhost/api/projects/1/servers/1/sites/1/deployments?page=10'
+                  prev: null
+                  next: 'http://localhost/api/projects/1/servers/1/sites/1/deployments?page=2'
+                meta:
+                  current_page: 1
+                  from: 1
+                  last_page: 10
+                  per_page: 25
+                  to: 25
+                  total: 250
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    post:
+      summary: Create deployment
+      description: Create a new deployment for a site
+      tags:
+        - Deployments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Deployment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Deployment.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+              example:
+                message: 'Deployment script is empty'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/deployments/{deployment}:
+    get:
+      summary: Get deployment
+      description: Get a specific deployment by ID
+      tags:
+        - Deployments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+        - name: deployment
+          in: path
+          required: true
+          description: Deployment ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Deployment details
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Deployment.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Deployment not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/redirects:
+    get:
+      summary: List redirects
+      description: Get all redirects for a site
+      tags:
+        - Redirects
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: List of redirects
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '/api-docs/openapi/schemas/PaginatedResponse.yaml'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '/api-docs/openapi/schemas/Redirect.yaml'
+              example:
+                data:
+                  - id: 1
+                    server_id: 1
+                    site_id: 1
+                    from: 'old-path'
+                    to: 'https://example.com/new-path'
+                    mode: 301
+                    websocket: false
+                    status: 'ready'
+                    status_color: 'success'
+                    created_at: '2024-01-01T00:00:00.000000Z'
+                    updated_at: '2024-01-01T00:00:00.000000Z'
+                links:
+                  first: 'http://localhost/api/projects/1/servers/1/sites/1/redirects?page=1'
+                  last: 'http://localhost/api/projects/1/servers/1/sites/1/redirects?page=1'
+                  prev: null
+                  next: null
+                meta:
+                  current_page: 1
+                  from: 1
+                  last_page: 1
+                  per_page: 25
+                  to: 1
+                  total: 1
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    post:
+      summary: Create redirect
+      description: Create a new redirect for a site
+      tags:
+        - Redirects
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - from
+                - to
+                - mode
+              properties:
+                from:
+                  type: string
+                  maxLength: 255
+                  description: 'Source path to redirect from (must not start with http:// or https://)'
+                  example: 'old-path'
+                to:
+                  type: string
+                  format: uri
+                  description: 'Destination URL to redirect to'
+                  example: 'https://example.com/new-path'
+                mode:
+                  type: integer
+                  enum: [301, 302, 307, 308, 1000]
+                  description: 'HTTP redirect mode'
+                  example: 301
+                websocket:
+                  type: boolean
+                  description: 'Enable WebSocket upgrade support (only applies when mode is 1000 / proxy)'
+                  default: false
+                  example: false
+            example:
+              from: 'old-path'
+              to: 'https://example.com/new-path'
+              mode: 301
+              websocket: false
+      responses:
+        '200':
+          description: Redirect created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Redirect.yaml'
+              example:
+                id: 1
+                server_id: 1
+                site_id: 1
+                from: 'old-path'
+                to: 'https://example.com/new-path'
+                mode: 301
+                websocket: false
+                status: 'creating'
+                status_color: 'warning'
+                created_at: '2024-01-01T00:00:00.000000Z'
+                updated_at: '2024-01-01T00:00:00.000000Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Site not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/servers/{server}/sites/{site}/redirects/{redirect}:
+    put:
+      summary: Update redirect
+      description: Update an existing redirect for a site
+      tags:
+        - Redirects
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+        - name: redirect
+          in: path
+          required: true
+          description: Redirect ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - from
+                - to
+                - mode
+              properties:
+                from:
+                  type: string
+                  maxLength: 255
+                  description: 'Source path to redirect from (must not start with http:// or https://)'
+                  example: 'old-path'
+                to:
+                  type: string
+                  format: uri
+                  description: 'Destination URL to redirect to'
+                  example: 'https://example.com/new-path'
+                mode:
+                  type: integer
+                  enum: [301, 302, 307, 308, 1000]
+                  description: 'HTTP redirect mode'
+                  example: 301
+                websocket:
+                  type: boolean
+                  description: 'Enable WebSocket upgrade support (only applies when mode is 1000 / proxy)'
+                  default: false
+                  example: false
+            example:
+              from: 'old-path'
+              to: 'https://example.com/new-path'
+              mode: 301
+              websocket: false
+      responses:
+        '200':
+          description: Redirect updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/Redirect.yaml'
+              example:
+                id: 1
+                server_id: 1
+                site_id: 1
+                from: 'old-path'
+                to: 'https://example.com/new-path'
+                mode: 301
+                websocket: false
+                status: 'creating'
+                status_color: 'warning'
+                created_at: '2024-01-01T00:00:00.000000Z'
+                updated_at: '2024-01-01T00:00:00.000000Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Redirect not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+    delete:
+      summary: Delete redirect
+      description: Delete a redirect from a site
+      tags:
+        - Redirects
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: server
+          in: path
+          required: true
+          description: Server ID
+          schema:
+            type: integer
+            example: 1
+        - name: site
+          in: path
+          required: true
+          description: Site ID
+          schema:
+            type: integer
+            example: 1
+        - name: redirect
+          in: path
+          required: true
+          description: Redirect ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '204':
+          description: Redirect deleted successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Redirect not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+

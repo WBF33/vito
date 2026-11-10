@@ -1,96 +1,145 @@
 <?php
 
-namespace Tests\Unit\Actions\Service;
-
+use App\Actions\Network\CreateNetwork;
 use App\Actions\Service\Uninstall;
+use App\Enums\ServerStatus;
 use App\Enums\ServiceStatus;
 use App\Facades\SSH;
+use App\Jobs\Service\UpdateVitoAgentConfigJob;
 use App\Models\Database;
 use App\Models\Service;
 use App\Models\Worker;
+use App\Services\Webserver\Caddy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Validation\ValidationException;
-use Tests\TestCase;
 
-class UninstallTest extends TestCase
-{
-    use RefreshDatabase;
+uses(RefreshDatabase::class);
 
-    public function test_uninstall_vito_agent(): void
-    {
-        SSH::fake();
+test('uninstall vito agent', function () {
+    SSH::fake();
 
-        $this->server->monitoring()?->delete();
+    $this->server->monitoring()?->delete();
 
-        $service = Service::factory()->create([
-            'server_id' => $this->server->id,
-            'name' => 'vito-agent',
-            'type' => 'monitoring',
-            'version' => 'latest',
-            'status' => ServiceStatus::READY,
-        ]);
+    $service = Service::factory()->create([
+        'server_id' => $this->server->id,
+        'name' => 'vito-agent',
+        'type' => 'monitoring',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
 
-        app(Uninstall::class)->uninstall($this->server->monitoring());
+    app(Uninstall::class)->uninstall($this->server->monitoring());
 
-        $this->assertDatabaseMissing('services', [
-            'id' => $service->id,
-        ]);
-    }
+    $this->assertDatabaseMissing('services', [
+        'id' => $service->id,
+    ]);
+});
 
-    /**
-     * Cannot uninstall nginx because some sites using it
-     */
-    public function test_cannot_uninstall_nginx(): void
-    {
-        SSH::fake();
+test('uninstalling service dispatches agent config update', function () {
+    SSH::fake();
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
 
-        $this->expectException(ValidationException::class);
+    Service::factory()->vitoAgent()->create(['server_id' => $this->server->id]);
 
-        app(Uninstall::class)->uninstall($this->server->webserver());
-    }
+    $redis = $this->server->services()->where('name', 'redis')->firstOrFail();
 
-    /**
-     * Cannot uninstall caddy because some sites using it
-     */
-    public function test_cannot_uninstall_caddy(): void
-    {
-        SSH::fake();
+    app(Uninstall::class)->uninstall($redis);
 
-        $this->expectException(ValidationException::class);
+    $this->assertDatabaseMissing('services', ['id' => $redis->id]);
+    Bus::assertDispatched(UpdateVitoAgentConfigJob::class);
+});
 
-        app(Uninstall::class)->uninstall($this->server->webserver());
-    }
+test('uninstalling vito agent does not dispatch agent config update', function () {
+    SSH::fake();
+    Bus::fake([UpdateVitoAgentConfigJob::class]);
 
-    /**
-     * Cannot uninstall mysql because some databases exist
-     */
-    public function test_cannot_uninstall_mysql(): void
-    {
-        SSH::fake();
+    $this->server->monitoring()?->delete();
 
-        Database::factory()->create([
-            'server_id' => $this->server->id,
-        ]);
+    Service::factory()->create([
+        'server_id' => $this->server->id,
+        'name' => 'vito-agent',
+        'type' => 'monitoring',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
 
-        $this->expectException(ValidationException::class);
+    app(Uninstall::class)->uninstall($this->server->monitoring());
 
-        app(Uninstall::class)->uninstall($this->server->database());
-    }
+    Bus::assertNotDispatched(UpdateVitoAgentConfigJob::class);
+});
 
-    /**
-     * Cannot uninstall supervisor because some queues exist
-     */
-    public function test_cannot_uninstall_supervisor(): void
-    {
-        SSH::fake();
+test('cannot uninstall nginx', function () {
+    SSH::fake();
 
-        Worker::factory()->create([
-            'server_id' => $this->server->id,
-            'site_id' => $this->site->id,
-        ]);
+    $this->expectException(ValidationException::class);
 
-        $this->expectException(ValidationException::class);
+    app(Uninstall::class)->uninstall($this->server->webserver());
+});
 
-        app(Uninstall::class)->uninstall($this->server->processManager());
-    }
-}
+test('cannot uninstall caddy', function () {
+    SSH::fake();
+
+    $caddy = $this->server->webserver();
+    $caddy->update(['name' => Caddy::id()]);
+
+    $this->expectException(ValidationException::class);
+
+    app(Uninstall::class)->uninstall($caddy);
+});
+
+test('cannot uninstall mysql', function () {
+    SSH::fake();
+
+    Database::factory()->create([
+        'server_id' => $this->server->id,
+    ]);
+
+    $this->expectException(ValidationException::class);
+
+    app(Uninstall::class)->uninstall($this->server->database());
+});
+
+test('cannot uninstall wireguard when server is network member', function () {
+    SSH::fake();
+    $this->server->update(['status' => ServerStatus::READY]);
+
+    app(CreateNetwork::class)->create($this->server->project, [
+        'name' => 'wg-net',
+        'type' => 'wireguard',
+        'servers' => [$this->server->id],
+    ]);
+
+    $this->expectException(ValidationException::class);
+
+    app(Uninstall::class)->uninstall($this->server->service('vpn'));
+});
+
+test('can uninstall wireguard when server is not a network member', function () {
+    SSH::fake();
+
+    $service = Service::factory()->create([
+        'server_id' => $this->server->id,
+        'name' => 'wireguard',
+        'type' => 'vpn',
+        'version' => 'latest',
+        'status' => ServiceStatus::READY,
+    ]);
+
+    app(Uninstall::class)->uninstall($service);
+
+    $this->assertDatabaseMissing('services', ['id' => $service->id]);
+});
+
+test('cannot uninstall supervisor', function () {
+    SSH::fake();
+
+    Worker::factory()->create([
+        'server_id' => $this->server->id,
+        'site_id' => $this->site->id,
+    ]);
+
+    $this->expectException(ValidationException::class);
+
+    app(Uninstall::class)->uninstall($this->server->processManager());
+});

@@ -22,9 +22,27 @@ class WorkerFactory extends Factory
             'auto_start' => 1,
             'auto_restart' => 1,
             'numprocs' => 1,
+            'environment' => null,
             'redirect_stderr' => 1,
             'stdout_logfile' => 'file.log',
             'status' => WorkerStatus::CREATING,
         ];
+    }
+
+    /**
+     * @param  array<string, string>  $environment
+     */
+    public function withEnvironment(array $environment): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'environment' => collect($environment)
+                ->map(fn (string $value, string $key): array => [
+                    'key' => $key,
+                    'value' => $value,
+                    'is_secret' => false,
+                ])
+                ->values()
+                ->all(),
+        ]);
     }
 }

@@ -1,27 +1,28 @@
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { FormEvent, ReactNode, useState } from 'react';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { FormEvent } from 'react';
 import { Form, FormField, FormFields } from '@/components/ui/form';
 import { Button } from '@/components/ui/button';
 import { useForm } from '@inertiajs/react';
-import { LoaderCircleIcon } from 'lucide-react';
+import { InfoIcon, LoaderCircleIcon } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import InputError from '@/components/ui/input-error';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FirewallRule } from '@/types/firewall';
 
-export default function RuleForm({ serverId, firewallRule, children }: { serverId: number; firewallRule?: FirewallRule; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+export default function RuleForm({
+  open,
+  onOpenChange,
+  serverId,
+  firewallRule,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  serverId: number;
+  firewallRule?: FirewallRule;
+}) {
   const form = useForm<{
     name: string;
     type: string;
@@ -37,32 +38,35 @@ export default function RuleForm({ serverId, firewallRule, children }: { serverI
     port: firewallRule?.port?.toString() || '',
     source_any: !firewallRule?.source,
     source: firewallRule?.source || '',
-    mask: firewallRule?.mask?.toString() || '',
+    mask: firewallRule?.mask?.toString() || '32',
   });
+
+  const changeSource = (source: string) => {
+    const hostMask = source.includes(':') ? '128' : '32';
+
+    form.setData((prev) => ({
+      ...prev,
+      source,
+      mask: prev.mask === '' || prev.mask === '32' || prev.mask === '128' ? hostMask : prev.mask,
+    }));
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (firewallRule) {
       form.put(route('firewall.update', { server: serverId, firewallRule: firewallRule.id }), {
-        onSuccess: () => {
-          setOpen(false);
-          form.reset();
-        },
+        onSuccess: () => onOpenChange(false),
       });
       return;
     }
 
     form.post(route('firewall.store', { server: serverId }), {
-      onSuccess: () => {
-        setOpen(false);
-        form.reset();
-      },
+      onSuccess: () => onOpenChange(false),
     });
   };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{firewallRule ? 'Edit' : 'Create'} firewall rule</DialogTitle>
           <DialogDescription className="sr-only">{firewallRule ? 'Edit' : 'Create new'} firewall rule</DialogDescription>
@@ -109,7 +113,16 @@ export default function RuleForm({ serverId, firewallRule, children }: { serverI
 
             <FormField>
               <Label htmlFor="port">Port</Label>
-              <Input type="text" id="port" value={form.data.port} onChange={(e) => form.setData('port', e.target.value)} />
+              <Input
+                type="text"
+                id="port"
+                placeholder="e.g. 8080 or 3000:3010"
+                value={form.data.port}
+                onChange={(e) => form.setData('port', e.target.value)}
+              />
+              <p className="text-muted-foreground text-xs">
+                Enter a single port (e.g. <code>8080</code>) or a range (e.g. <code>3000:3010</code>). Ranges are inclusive.
+              </p>
               <InputError message={form.errors.port} />
             </FormField>
 
@@ -124,13 +137,23 @@ export default function RuleForm({ serverId, firewallRule, children }: { serverI
               <>
                 <FormField>
                   <Label htmlFor="source">Source</Label>
-                  <Input type="text" id="source" value={form.data.source} onChange={(e) => form.setData('source', e.target.value)} />
+                  <Input type="text" id="source" value={form.data.source} onChange={(e) => changeSource(e.target.value)} />
                   <InputError message={form.errors.source} />
                 </FormField>
 
                 <FormField>
                   <Label htmlFor="mask">Mask</Label>
                   <Input type="text" id="mask" value={form.data.mask} onChange={(e) => form.setData('mask', e.target.value)} />
+                  <Alert>
+                    <InfoIcon />
+                    <AlertDescription>
+                      <p>
+                        The mask sets how many IP addresses this rule covers. Use <code>{form.data.source.includes(':') ? '128' : '32'}</code> for
+                        just this one IP, <code>{form.data.source.includes(':') ? '64' : '24'}</code> for its whole local network, and smaller numbers
+                        to cover even more. Lower number = wider range.
+                      </p>
+                    </AlertDescription>
+                  </Alert>
                   <InputError message={form.errors.mask} />
                 </FormField>
               </>

@@ -1,0 +1,305 @@
+paths:
+  /api/projects/{project}/storage-providers:
+    get:
+      summary: List storage providers
+      description: "DEPRECATED: Use /api/storage-providers instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Storage Providers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: List of storage providers
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '/api-docs/openapi/schemas/PaginatedResponse.yaml'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '/api-docs/openapi/schemas/StorageProvider.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    post:
+      summary: Create storage provider
+      description: "DEPRECATED: Use /api/storage-providers instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Storage Providers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - provider
+              description: >-
+                Provider-specific credential fields are sent as flat top-level
+                properties (not nested under a `credentials` object). The
+                required fields depend on the selected `provider`. For example,
+                `s3` requires `key`, `secret`, `region`, `bucket` (with optional
+                `api_url`, `path`); `ftp`/`sftp` require `host`, `port`,
+                `username`, `password`, `path`; `dropbox` requires `app_key`,
+                `app_secret`, `refresh_token`; `local` requires `path`.
+              properties:
+                name:
+                  type: string
+                  description: Storage provider name
+                  example: 'AWS S3'
+                provider:
+                  type: string
+                  enum: ['s3', 'local', 'ftp', 'sftp', 'dropbox']
+                  description: Storage provider type
+                  example: 's3'
+              additionalProperties: true
+            example:
+              name: 'AWS S3'
+              provider: 's3'
+              key: 'your-access-key-id'
+              secret: 'your-secret-access-key'
+              region: 'us-east-1'
+              bucket: 'my-bucket'
+      responses:
+        '201':
+          description: Storage provider created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/StorageProvider.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+  /api/projects/{project}/storage-providers/{storageProvider}:
+    get:
+      summary: Get storage provider
+      description: "DEPRECATED: Use /api/storage-providers/{storageProvider} instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Storage Providers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: storageProvider
+          in: path
+          required: true
+          description: Storage provider ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Storage provider details
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/StorageProvider.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Storage provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+
+    put:
+      summary: Update storage provider
+      description: "DEPRECATED: Use /api/storage-providers/{storageProvider} instead. This endpoint will be removed in a future version. Provider credential fields may also be sent; omitted fields keep their current value and empty secret fields (e.g. secret, password) are ignored. Credentials are re-verified against the provider when they change."
+      deprecated: true
+      tags:
+        - Storage Providers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: storageProvider
+          in: path
+          required: true
+          description: Storage provider ID
+          schema:
+            type: integer
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Storage provider name
+                  example: 'AWS S3'
+                global:
+                  type: boolean
+                  description: Whether this provider should be available globally (not tied to current project)
+                  example: false
+              additionalProperties: true
+            example:
+              name: 'AWS S3'
+              bucket: 'my-new-bucket'
+              secret: 'your-new-secret-access-key'
+      responses:
+        '200':
+          description: Storage provider updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/StorageProvider.yaml'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Storage provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ValidationError.yaml'
+
+    delete:
+      summary: Delete storage provider
+      description: "DEPRECATED: Use /api/storage-providers/{storageProvider} instead. This endpoint will be removed in a future version."
+      deprecated: true
+      tags:
+        - Storage Providers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: path
+          required: true
+          description: Project ID
+          schema:
+            type: integer
+            example: 1
+        - name: storageProvider
+          in: path
+          required: true
+          description: Storage provider ID
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '204':
+          description: Storage provider deleted successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'
+        '404':
+          description: Storage provider not found
+          content:
+            application/json:
+              schema:
+                $ref: '/api-docs/openapi/schemas/ErrorResponse.yaml'

@@ -7,6 +7,8 @@ use App\Actions\Worker\DeleteWorker;
 use App\Actions\Worker\EditWorker;
 use App\Actions\Worker\GetWorkerLogs;
 use App\Actions\Worker\ManageWorker;
+use App\Actions\Worker\RestartAllWorkers;
+use App\Actions\Worker\SyncWorkerStatuses;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\WorkerResource;
 use App\Models\Project;
@@ -16,26 +18,20 @@ use App\Models\Worker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
-use Knuckles\Scribe\Attributes\BodyParam;
-use Knuckles\Scribe\Attributes\Endpoint;
-use Knuckles\Scribe\Attributes\Group;
-use Knuckles\Scribe\Attributes\Response;
-use Knuckles\Scribe\Attributes\ResponseFromApiResource;
+use Illuminate\Http\Response;
 use Spatie\RouteAttributes\Attributes\Delete;
 use Spatie\RouteAttributes\Attributes\Get;
 use Spatie\RouteAttributes\Attributes\Middleware;
 use Spatie\RouteAttributes\Attributes\Post;
 use Spatie\RouteAttributes\Attributes\Prefix;
 use Spatie\RouteAttributes\Attributes\Put;
+use Spatie\RouteAttributes\Attributes\WhereNumber;
 
 #[Prefix('api/projects/{project}/servers/{server}')]
 #[Middleware(['auth:sanctum', 'can-see-project'])]
-#[Group(name: 'workers')]
 class WorkerController extends Controller
 {
     #[Get('/workers', name: 'api.projects.servers.workers', middleware: 'ability:read')]
-    #[Endpoint(title: 'list', description: 'Get all workers.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class, collection: true, paginate: 25)]
     public function serverIndex(Project $project, Server $server): ResourceCollection
     {
         $this->authorize('view', [$project, $server]);
@@ -50,8 +46,6 @@ class WorkerController extends Controller
     }
 
     #[Get('/sites/{site}/workers', name: 'api.projects.servers.sites.workers', middleware: 'ability:read')]
-    #[Endpoint(title: 'site-list', description: 'Get all site workers.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class, collection: true, paginate: 25)]
     public function siteIndex(Project $project, Server $server, Site $site): ResourceCollection
     {
         $this->authorize('view', [$project, $server, $site]);
@@ -66,8 +60,6 @@ class WorkerController extends Controller
     }
 
     #[Get('/workers/{worker}', name: 'api.projects.servers.workers.show', middleware: 'ability:read')]
-    #[Endpoint(title: 'show', description: 'Get a server worker by ID.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
     public function serverShow(Project $project, Server $server, Worker $worker): WorkerResource
     {
         $this->authorize('view', [$project, $server, $worker]);
@@ -78,8 +70,6 @@ class WorkerController extends Controller
     }
 
     #[Get('/sites/{site}/workers/{worker}', name: 'api.projects.servers.sites.workers.show', middleware: 'ability:read')]
-    #[Endpoint(title: 'site-show', description: 'Get a server worker by ID.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
     public function siteShow(Project $project, Server $server, Site $site, Worker $worker): WorkerResource
     {
         $this->authorize('view', [$project, $server, $site, $worker]);
@@ -89,15 +79,38 @@ class WorkerController extends Controller
         return new WorkerResource($worker);
     }
 
+    #[Post('/workers/resync/{site?}', name: 'api.projects.servers.workers.resync', middleware: 'ability:write')]
+    #[WhereNumber('site')]
+    public function resync(Project $project, Server $server, ?Site $site = null): JsonResponse
+    {
+        $this->authorize('update', [$project, $server]);
+
+        $this->validateRoute($project, $server, $site);
+
+        $count = app(SyncWorkerStatuses::class)->sync($server, $site);
+
+        return response()->json([
+            'synced' => $count,
+        ]);
+    }
+
+    #[Post('/workers/restart-all/{site?}', name: 'api.projects.servers.workers.restart-all', middleware: 'ability:write')]
+    #[WhereNumber('site')]
+    public function restartAll(Project $project, Server $server, ?Site $site = null): JsonResponse
+    {
+        $this->authorize('update', [$project, $server]);
+
+        $this->validateRoute($project, $server, $site);
+
+        app(RestartAllWorkers::class)->restart($server, $site);
+
+        return response()->json([
+            'message' => 'Workers are being restarted.',
+        ], 202);
+    }
+
     #[Post('/workers/{site?}', name: 'api.projects.servers.workers.create', middleware: 'ability:write')]
-    #[Endpoint(title: 'create', description: 'Create a new worker.')]
-    #[BodyParam(name: 'name', required: true)]
-    #[BodyParam(name: 'command', required: true)]
-    #[BodyParam(name: 'user', required: true)]
-    #[BodyParam(name: 'auto_start', type: 'boolean', required: true)]
-    #[BodyParam(name: 'auto_restart', type: 'boolean', required: true)]
-    #[BodyParam(name: 'numprocs', required: true)]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
+    #[WhereNumber('site')]
     public function create(Request $request, Project $project, Server $server, ?Site $site = null): WorkerResource
     {
         $this->authorize('create', [$project, $server, $site]);
@@ -110,14 +123,6 @@ class WorkerController extends Controller
     }
 
     #[Put('/workers/{worker}/{site?}', name: 'api.projects.servers.workers.update', middleware: 'ability:write')]
-    #[Endpoint(title: 'update', description: 'Update a worker.')]
-    #[BodyParam(name: 'name', required: true)]
-    #[BodyParam(name: 'command', required: true)]
-    #[BodyParam(name: 'user', required: true)]
-    #[BodyParam(name: 'auto_start', type: 'boolean', required: true)]
-    #[BodyParam(name: 'auto_restart', type: 'boolean', required: true)]
-    #[BodyParam(name: 'numprocs', required: true)]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
     public function update(Request $request, Project $project, Server $server, Worker $worker, ?Site $site = null): WorkerResource
     {
         $this->authorize('update', [$project, $server, $site]);
@@ -130,8 +135,6 @@ class WorkerController extends Controller
     }
 
     #[Post('/workers/{worker}/start', name: 'api.projects.servers.workers.start', middleware: 'ability:write')]
-    #[Endpoint(title: 'update', description: 'Start a worker.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
     public function start(Request $request, Project $project, Server $server, Worker $worker): WorkerResource
     {
         $this->authorize('update', [$project, $server]);
@@ -144,8 +147,6 @@ class WorkerController extends Controller
     }
 
     #[Post('/workers/{worker}/restart', name: 'api.projects.servers.workers.restart', middleware: 'ability:write')]
-    #[Endpoint(title: 'restart', description: 'Restart a worker.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
     public function restart(Request $request, Project $project, Server $server, Worker $worker): WorkerResource
     {
         $this->authorize('update', [$project, $server]);
@@ -158,8 +159,6 @@ class WorkerController extends Controller
     }
 
     #[Get('/workers/{worker}/logs', name: 'api.projects.servers.workers.logs', middleware: 'ability:read')]
-    #[Endpoint(title: 'logs', description: 'Get worker logs.')]
-    #[ResponseFromApiResource(WorkerResource::class, Worker::class)]
     public function logs(Project $project, Server $server, Worker $worker): JsonResponse
     {
         $this->authorize('view', [$project, $server, $worker]);
@@ -174,9 +173,7 @@ class WorkerController extends Controller
     }
 
     #[Delete('/workers/{worker}/{site?}', name: 'api.projects.servers.workers.delete', middleware: 'ability:write')]
-    #[Endpoint(title: 'delete', description: 'Delete worker.')]
-    #[Response(status: 204)]
-    public function delete(Request $request, Project $project, Server $server, Worker $worker, ?Site $site = null): \Illuminate\Http\Response
+    public function delete(Request $request, Project $project, Server $server, Worker $worker, ?Site $site = null): Response
     {
         $this->authorize('delete', [$project, $server, $site, $worker]);
 
